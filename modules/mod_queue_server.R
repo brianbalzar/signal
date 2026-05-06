@@ -297,18 +297,48 @@ mod_queue_server <- function(id) {
     })
 
     output$prospect_action_buttons <- renderUI({
-      has_selection <- !is.null(selected_prospect())
+      prospect <- selected_prospect()
+      has_selection <- !is.null(prospect)
       research_busy <- isTRUE(researching_prospect())
+      has_saved_research <- has_selection && has_company_research(prospect)
+
+      research_buttons <- if (!has_selection || research_busy) {
+        tagList(queue_action_button(
+          session$ns,
+          "research_prospect",
+          if (research_busy) "Researching..." else "Research Organization",
+          enabled = has_selection && !research_busy
+        ))
+      } else if (has_saved_research) {
+        tagList(
+          queue_action_button(
+            session$ns,
+            "use_cached_research",
+            "Use Saved Research",
+            class = "btn-primary",
+            enabled = TRUE
+          ),
+          queue_action_button(
+            session$ns,
+            "refresh_research",
+            "Refresh Research",
+            enabled = TRUE
+          )
+        )
+      } else {
+        tagList(queue_action_button(
+          session$ns,
+          "research_prospect",
+          "Research Organization",
+          class = "btn-primary",
+          enabled = TRUE
+        ))
+      }
 
       div(
         class = "button-row",
         queue_action_button(session$ns, "open_prospect_modal", "Open Prospect", enabled = has_selection),
-        queue_action_button(
-          session$ns,
-          "research_prospect",
-          if (research_busy) "Researching..." else "Research Prospect",
-          enabled = has_selection && !research_busy
-        )
+        research_buttons
       )
     })
 
@@ -505,7 +535,7 @@ mod_queue_server <- function(id) {
 
       div(
         class = "research-status",
-        strong("Research saved."),
+        strong("Organization research saved."),
         span(" Open the prospect to review the summary, signals, and sources.")
       )
     })
@@ -609,7 +639,37 @@ mod_queue_server <- function(id) {
       showNotification("Draft generated and saved.", type = "message")
     })
 
-    observeEvent(input$research_prospect, {
+    apply_cached_research_to_selection <- function(prospect) {
+      cached <- get_company_research(prospect$company)
+
+      if (is.null(cached)) {
+        return(FALSE)
+      }
+
+      affected <- update_company_research(
+        company = prospect$company,
+        research_notes = cached$research_notes,
+        research_sources = cached$research_sources,
+        researched_at = cached$researched_at %||% Sys.time()
+      )
+
+      refreshed <- get_prospect_by_id(prospect$id)
+      selected_prospect(refreshed)
+      latest_research(cached$research_notes)
+      refresh_counter(refresh_counter() + 1)
+
+      showNotification(
+        paste(
+          "Saved organization research applied to",
+          pluralize_count(affected, "prospect.", "prospects.")
+        ),
+        type = "message"
+      )
+
+      TRUE
+    }
+
+    run_research_for_selection <- function(force_refresh = FALSE) {
       prospect <- selected_prospect()
       req(prospect)
 
@@ -617,28 +677,95 @@ mod_queue_server <- function(id) {
         return()
       }
 
+      if (!isTRUE(force_refresh) && apply_cached_research_to_selection(prospect)) {
+        return()
+      }
+
       researching_prospect(TRUE)
       on.exit(researching_prospect(FALSE), add = TRUE)
+      on.exit(
+        session$sendCustomMessage(
+          "research-progress-state",
+          list(active = FALSE)
+        ),
+        add = TRUE
+      )
+
+      session$sendCustomMessage(
+        "research-progress-state",
+        list(active = TRUE, stage = "Preparing fast research...")
+      )
 
       research <- withProgress(
-        message = "Researching prospect...",
-        value = 0.4,
-        research_prospect_with_claude_safe(prospect)
+        message = "Researching organization...",
+        value = 0,
+        {
+          incProgress(0.15, detail = "Preparing prospect context")
+          session$sendCustomMessage(
+            "research-progress-state",
+            list(active = TRUE, stage = "Searching public signals...")
+          )
+
+          result <- research_prospect_with_claude_safe(prospect)
+
+          incProgress(0.65, detail = "Saving to matching prospects")
+          session$sendCustomMessage(
+            "research-progress-state",
+            list(active = TRUE, stage = "Saving organization research...")
+          )
+
+          result
+        }
       )
       research_notes <- research$formatted_notes %||% research$summary
-      research_sources <- paste(research$sources %||% character(0), collapse = "\n")
-
-      update_prospect_research(
-        prospect_id = prospect$id,
+      research_sources <- collapse_research_sources(research$sources)
+      researched_at <- Sys.time()
+      affected <- update_company_research(
+        company = prospect$company,
         research_notes = research_notes,
-        research_sources = research_sources
+        research_sources = research_sources,
+        researched_at = researched_at
       )
+
+      if (affected == 0) {
+        update_prospect_research(
+          prospect_id = prospect$id,
+          research_notes = research_notes,
+          research_sources = research_sources,
+          researched_at = researched_at
+        )
+        affected <- 1
+      }
 
       refreshed <- get_prospect_by_id(prospect$id)
       selected_prospect(refreshed)
       latest_research(research_notes)
+      refresh_counter(refresh_counter() + 1)
 
-      showNotification("Research saved to prospect.", type = "message")
+      showNotification(
+        paste(
+          "Research saved to",
+          pluralize_count(affected, "prospect from this organization.", "prospects from this organization.")
+        ),
+        type = "message"
+      )
+    }
+
+    observeEvent(input$research_prospect, {
+      run_research_for_selection(force_refresh = FALSE)
+    })
+
+    observeEvent(input$refresh_research, {
+      run_research_for_selection(force_refresh = TRUE)
+    })
+
+    observeEvent(input$use_cached_research, {
+      prospect <- selected_prospect()
+      req(prospect)
+
+      if (!apply_cached_research_to_selection(prospect)) {
+        showNotification("No saved organization research found.", type = "warning")
+      }
     })
 
     observeEvent(input$generate_local_draft, {
@@ -1061,6 +1188,26 @@ build_call_touch_body <- function(call_prep, call_notes) {
   }
 
   paste(parts, collapse = "\n\n")
+}
+
+has_company_research <- function(prospect) {
+  if (is.null(prospect)) {
+    return(FALSE)
+  }
+
+  !is.null(get_company_research(prospect$company))
+}
+
+collapse_research_sources <- function(sources) {
+  if (is.null(sources) || length(sources) == 0) {
+    return("")
+  }
+
+  sources <- unlist(sources, use.names = FALSE)
+  sources <- trimws(as.character(sources))
+  sources <- sources[!is.na(sources) & sources != ""]
+
+  paste(sources, collapse = "\n")
 }
 
 build_mailto_url <- function(to, subject = "", body = "") {

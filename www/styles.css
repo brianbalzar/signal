@@ -343,6 +343,59 @@ body {
   padding: 10px 12px;
 }
 
+.research-progress {
+  align-items: center;
+  background: #f8fbfe;
+  border: 1px solid #d5e2ef;
+  border-radius: 8px;
+  color: #34495e;
+  display: none;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.research-progress.active {
+  display: flex;
+}
+
+.research-spinner {
+  animation: signal-spin 0.8s linear infinite;
+  border: 3px solid #d8e5f1;
+  border-top-color: #477db3;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 22px;
+  width: 22px;
+}
+
+.research-progress-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.research-progress-copy strong {
+  font-size: 13px;
+}
+
+.research-progress-copy span {
+  color: #5f6f7f;
+  font-size: 13px;
+}
+
+.research-progress-copy small {
+  color: #718191;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@keyframes signal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .empty-state {
   border: 1px dashed #cfd6de;
   border-radius: 8px;

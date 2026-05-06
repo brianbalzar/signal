@@ -4,7 +4,7 @@ mod_queue_ui <- function(id) {
   ns <- NS(id)
 
   tagList(
-    tags$script(HTML("
+    tags$script(HTML(sprintf("
       Shiny.addCustomMessageHandler('copy-draft-to-clipboard', function(message) {
         var text = message.text || '';
 
@@ -23,7 +23,63 @@ mod_queue_ui <- function(id) {
         document.execCommand('copy');
         document.body.removeChild(textArea);
       });
-    ")),
+
+      function setResearchProgress(active, stage) {
+        var el = document.getElementById('%s');
+        if (!el) {
+          return;
+        }
+
+        var stageEl = el.querySelector('[data-research-stage]');
+        var timerEl = el.querySelector('[data-research-timer]');
+
+        if (stageEl && stage) {
+          stageEl.textContent = stage;
+        }
+
+        if (active) {
+          el.classList.add('active');
+          var started = Date.now();
+
+          if (window.signalResearchTimer) {
+            clearInterval(window.signalResearchTimer);
+          }
+
+          if (timerEl) {
+            timerEl.textContent = '0s';
+          }
+
+          window.signalResearchTimer = setInterval(function() {
+            if (timerEl) {
+              timerEl.textContent = Math.round((Date.now() - started) / 1000) + 's';
+            }
+          }, 1000);
+        } else {
+          el.classList.remove('active');
+
+          if (window.signalResearchTimer) {
+            clearInterval(window.signalResearchTimer);
+            window.signalResearchTimer = null;
+          }
+        }
+      }
+
+      Shiny.addCustomMessageHandler('research-progress-state', function(message) {
+        setResearchProgress(!!message.active, message.stage || 'Researching public signals...');
+      });
+
+      document.addEventListener('click', function(event) {
+        var target = event.target;
+
+        if (!target) {
+          return;
+        }
+
+        if (target.id === '%s' || target.id === '%s') {
+          setResearchProgress(true, 'Researching public signals...');
+        }
+      });
+    ", ns("research_progress"), ns("research_prospect"), ns("refresh_research")))),
 
     div(
       class = "panel-card workbench-toolbar",
@@ -98,6 +154,17 @@ mod_queue_ui <- function(id) {
           uiOutput(ns("selected_summary")),
 
           uiOutput(ns("prospect_action_buttons")),
+          div(
+            id = ns("research_progress"),
+            class = "research-progress",
+            div(class = "research-spinner"),
+            div(
+              class = "research-progress-copy",
+              strong("Research in progress"),
+              span(`data-research-stage` = "", "Researching public signals..."),
+              tags$small(`data-research-timer` = "", "0s")
+            )
+          ),
 
           uiOutput(ns("research_summary"))
         )

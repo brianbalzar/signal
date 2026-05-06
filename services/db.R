@@ -1125,6 +1125,100 @@ update_prospect_research <- function(
   invisible(TRUE)
 }
 
+get_company_research <- function(company) {
+  company <- normalize_company_match_value(company)
+
+  if (is.na(company)) {
+    return(NULL)
+  }
+
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  result <- dbGetQuery(
+    con,
+    "
+    SELECT
+      id,
+      company,
+      research_notes,
+      research_sources,
+      researched_at
+    FROM prospects
+    WHERE
+      lower(trim(coalesce(company, ''))) = lower(trim(?))
+      AND research_notes IS NOT NULL
+      AND trim(research_notes) <> ''
+    ORDER BY
+      CASE WHEN researched_at IS NULL OR researched_at = '' THEN 1 ELSE 0 END,
+      researched_at DESC,
+      updated_at DESC
+    LIMIT 1
+    ",
+    params = list(company)
+  )
+
+  if (nrow(result) == 0) {
+    return(NULL)
+  }
+
+  result[1, ]
+}
+
+
+update_company_research <- function(
+    company,
+    research_notes = NULL,
+    research_sources = NULL,
+    researched_at = Sys.time()
+) {
+  company <- normalize_company_match_value(company)
+
+  if (is.na(company)) {
+    return(0L)
+  }
+
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  affected <- dbExecute(
+    con,
+    "
+    UPDATE prospects
+    SET
+      research_notes = ?,
+      research_sources = ?,
+      researched_at = ?,
+      updated_at = ?
+    WHERE lower(trim(coalesce(company, ''))) = lower(trim(?))
+    ",
+    params = list(
+      research_notes %||% NA_character_,
+      research_sources %||% NA_character_,
+      as.character(researched_at),
+      as.character(Sys.time()),
+      company
+    )
+  )
+
+  as.integer(affected)
+}
+
+
+normalize_company_match_value <- function(company) {
+  if (is.null(company) || length(company) == 0) {
+    return(NA_character_)
+  }
+
+  company <- trimws(as.character(company[1]))
+
+  if (is.na(company) || company == "") {
+    return(NA_character_)
+  }
+
+  company
+}
+
 
 # ---- Export helpers ---------------------------------------------------------
 

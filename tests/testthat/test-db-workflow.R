@@ -205,3 +205,37 @@ test_that("prospect research can be stored without changing outreach notes", {
     expect_false(is.na(prospect$researched_at))
   })
 })
+
+test_that("organization research can be shared across matching company prospects", {
+  with_test_db({
+    create_test_prospect()
+    create_prospect(list(
+      first_name = "Second",
+      last_name = "Prospect",
+      company = " test co ",
+      title = "Operations Manager",
+      email = "second@example.com",
+      source = "Manual",
+      segment = "Commercial Office",
+      status = "Ready to Email",
+      sequence_stage = 0,
+      next_touch = as.character(Sys.Date())
+    ))
+
+    affected <- update_company_research(
+      company = "Test Co",
+      research_notes = "Shared organization research",
+      research_sources = "https://example.com/source",
+      researched_at = "2026-05-06 09:00:00"
+    )
+
+    prospects <- get_prospects(include_inactive = TRUE)
+    company_matches <- tolower(trimws(prospects$company)) == "test co"
+    cached <- get_company_research("TEST CO")
+
+    expect_equal(affected, 2)
+    expect_true(all(prospects$research_notes[company_matches] == "Shared organization research"))
+    expect_equal(cached$research_notes, "Shared organization research")
+    expect_equal(cached$research_sources, "https://example.com/source")
+  })
+})

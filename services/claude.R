@@ -252,21 +252,18 @@ build_research_prompt <- function(prospect) {
   segment <- prospect$segment %||% ""
 
   paste(
-    "You are researching a public prospect for a facility consulting outbound email.",
+    "You are doing quick public research for a facility consulting outbound email.",
     "",
     "Goal:",
-    "Find publicly available signals that could make an outreach email more relevant.",
+    "Find only the most useful public signals that could make an outreach email more relevant.",
     "",
-    "Look for information such as:",
+    "Use a fast scan. Prefer 1-2 high-quality searches over a broad search. Look for:",
     "- bond activity or bond-funded projects",
     "- capital projects",
     "- construction, renovation, or expansion",
     "- facility improvement plans",
-    "- board agenda items",
-    "- public meeting minutes",
     "- energy efficiency, sustainability, or infrastructure initiatives",
     "- HVAC, controls, BAS/BMS, or mechanical system references",
-    "- leadership or facilities/operations context",
     "",
     "Important rules:",
     "- Use only public information found through web search.",
@@ -288,17 +285,9 @@ build_research_prompt <- function(prospect) {
     paste0("- State: ", state),
     paste0("- Segment: ", segment),
     "",
-    "Suggested searches to consider:",
-    paste0("- ", company, " bond"),
-    paste0("- ", company, " bond issuance"),
+    "Suggested searches to prioritize:",
     paste0("- ", company, " capital project"),
-    paste0("- ", company, " facilities improvement"),
-    paste0("- ", company, " board agenda"),
-    paste0("- ", company, " construction"),
-    paste0("- ", company, " renovation"),
-    paste0("- ", company, " energy efficiency"),
-    paste0("- ", company, " HVAC"),
-    paste0("- ", company, " controls"),
+    paste0("- ", company, " bond HVAC controls facilities"),
     "",
     "Output format:",
     "Return only valid JSON with exactly these keys:",
@@ -368,9 +357,9 @@ call_claude <- function(prompt, max_tokens = 700, temperature = 0.4) {
 
 call_claude_with_web_search <- function(
     prompt,
-    max_tokens = 1500,
+    max_tokens = DEFAULT_RESEARCH_MAX_TOKENS,
     temperature = 0.2,
-    max_uses = 5
+    max_uses = DEFAULT_RESEARCH_WEB_SEARCH_USES
 ) {
   call_claude_messages(
     prompt = prompt,
@@ -697,7 +686,11 @@ generate_call_prep_safe <- function(prospect) {
 
 research_prospect_with_claude <- function(prospect) {
   prompt <- build_research_prompt(prospect)
-  raw_response <- call_claude_with_web_search(prompt)
+  raw_response <- call_claude_with_web_search(
+    prompt,
+    max_tokens = DEFAULT_RESEARCH_MAX_TOKENS,
+    max_uses = DEFAULT_RESEARCH_WEB_SEARCH_USES
+  )
   research_result <- parse_claude_research_response(raw_response)
 
   research_result$formatted_notes <- format_research_notes(research_result)

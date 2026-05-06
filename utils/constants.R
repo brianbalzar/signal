@@ -214,6 +214,12 @@ EMAIL_TONES <- c(
 DEFAULT_EMAIL_TONE <- "Plainspoken"
 
 
+# ---- Research ---------------------------------------------------------------
+
+DEFAULT_RESEARCH_WEB_SEARCH_USES <- 2
+DEFAULT_RESEARCH_MAX_TOKENS <- 1000
+
+
 # ---- UI defaults ------------------------------------------------------------
 
 DEFAULT_QUEUE_SNOOZE_DAYS <- 7
