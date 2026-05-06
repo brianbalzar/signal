@@ -34,17 +34,20 @@ test_that("fallback draft does not include internal diagnostic notes", {
 test_that("research response parser handles valid JSON", {
   raw <- '{
     "summary": "Found a capital project.",
-    "signals": ["bond project", "HVAC reference"],
+    "signals": ["bond project", "HVAC reference", "board agenda"],
     "suggested_reason_for_outreach": "capital project may create facility performance needs",
     "suggested_personalization_notes": "Mention the project softly.",
-    "sources": ["https://example.com"]
+    "sources": ["https://example.com", "https://example.com/agenda"]
   }'
 
   parsed <- parse_claude_research_response(raw)
+  formatted <- format_research_notes(parsed)
 
   expect_equal(parsed$summary, "Found a capital project.")
-  expect_equal(length(parsed$signals), 2)
-  expect_equal(parsed$sources, "https://example.com")
+  expect_equal(length(parsed$signals), 3)
+  expect_equal(length(parsed$sources), 2)
+  expect_true(grepl("board agenda", formatted, fixed = TRUE))
+  expect_true(grepl("https://example.com/agenda", formatted, fixed = TRUE))
 })
 
 test_that("call prep response parser handles valid JSON", {

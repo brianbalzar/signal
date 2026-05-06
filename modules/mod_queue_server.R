@@ -389,6 +389,12 @@ mod_queue_server <- function(id) {
           if (call_busy) "Prepping..." else "Prep Call",
           class = "btn-primary",
           enabled = has_selection && !call_busy
+        ),
+        queue_action_button(
+          session$ns,
+          "quick_log_call",
+          "Log Call",
+          enabled = has_selection && !call_busy
         )
       )
     })
@@ -884,7 +890,7 @@ mod_queue_server <- function(id) {
       showNotification("Call prep copied to clipboard.", type = "message")
     })
 
-    observeEvent(input$log_call, {
+    log_call_for_selected_prospect <- function() {
       prospect <- selected_prospect()
       req(prospect)
 
@@ -950,6 +956,14 @@ mod_queue_server <- function(id) {
       updateDateInput(session, "call_next_touch", value = Sys.Date() + DEFAULT_CALL_BACK_DAYS)
 
       showNotification("Call logged without advancing the email sequence.", type = "message")
+    }
+
+    observeEvent(input$log_call, {
+      log_call_for_selected_prospect()
+    })
+
+    observeEvent(input$quick_log_call, {
+      log_call_for_selected_prospect()
     })
 
     observeEvent(input$log_sent, {

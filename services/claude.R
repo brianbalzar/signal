@@ -545,8 +545,8 @@ parse_claude_call_prep_response <- function(raw_text) {
 }
 
 format_research_notes <- function(research_result) {
-  signals <- research_result$signals %||% character(0)
-  sources <- research_result$sources %||% character(0)
+  signals <- normalize_research_values(research_result$signals)
+  sources <- normalize_research_values(research_result$sources)
 
   signals_text <- if (length(signals) > 0) {
     paste0("- ", signals, collapse = "\n")
@@ -577,6 +577,16 @@ format_research_notes <- function(research_result) {
     sources_text,
     sep = "\n"
   )
+}
+
+normalize_research_values <- function(values) {
+  if (is.null(values) || length(values) == 0) {
+    return(character(0))
+  }
+
+  values <- unlist(values, use.names = FALSE)
+  values <- trimws(as.character(values))
+  values[!is.na(values) & values != ""]
 }
 
 format_call_prep_notes <- function(call_prep) {
@@ -981,9 +991,15 @@ fallback_generate_call_prep_from_claude_service <- function(prospect, error_mess
 # Keeps this file self-contained in case outreach_logic.R has not been sourced.
 
 `%||%` <- function(x, y) {
-  if (is.null(x) || length(x) == 0 || is.na(x) || x == "") {
-    y
-  } else {
-    x
+  if (is.null(x) || length(x) == 0) {
+    return(y)
   }
+
+  first_value <- x[1]
+
+  if (is.null(first_value) || is.na(first_value) || first_value == "") {
+    return(y)
+  }
+
+  x
 }
