@@ -78,7 +78,7 @@ mod_queue_ui <- function(id) {
           div(
             class = "panel-title-row",
             h3("Queue"),
-            span(class = "panel-kicker", "Select one row")
+            span(class = "panel-kicker", "Double-click for details")
           ),
           DTOutput(ns("queue_table"))
         )
@@ -98,6 +98,10 @@ mod_queue_ui <- function(id) {
 
           div(
             class = "button-row",
+            actionButton(
+              ns("open_prospect_modal"),
+              "Open Prospect"
+            ),
             actionButton(
               ns("research_prospect"),
               "Research Prospect"

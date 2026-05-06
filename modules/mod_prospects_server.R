@@ -31,16 +31,23 @@ mod_prospects_server <- function(id) {
       prospects
     })
 
+    prospects_table_data <- reactive({
+      format_prospects_table_data(prospects_data())
+    })
+
     output$prospects_table <- renderDT({
       datatable(
-        prospects_data(),
+        prospects_table_data(),
         rownames = FALSE,
         selection = "single",
+        class = "compact stripe hover signal-table",
         options = list(
           pageLength = 9,
-          autoWidth = TRUE,
-          scrollX = TRUE,
-          dom = "tip"
+          autoWidth = FALSE,
+          dom = "tip",
+          columnDefs = list(
+            list(visible = FALSE, targets = 0)
+          )
         )
       )
     })
@@ -125,26 +132,27 @@ mod_prospects_server <- function(id) {
 
     output$import_preview_table <- renderDT({
       preview <- import_preview_data()
+      preview_table <- format_import_preview_table_data(preview)
 
       if (nrow(preview) == 0) {
         return(datatable(
-          data.frame(Message = "Upload a file and click Preview Import."),
+          preview_table,
           rownames = FALSE
         ))
       }
 
       datatable(
-        preview,
+        preview_table,
         rownames = FALSE,
+        class = "compact stripe hover signal-table",
         options = list(
           pageLength = 8,
-          autoWidth = TRUE,
-          scrollX = TRUE,
+          autoWidth = FALSE,
           dom = "tip"
         )
       ) |>
         DT::formatStyle(
-          "import_status",
+          "Import Status",
           target = "row",
           backgroundColor = DT::styleEqual(
             c("Ready", "Duplicate", "Invalid"),
@@ -292,8 +300,8 @@ mod_prospects_server <- function(id) {
       selected_row <- input$prospects_table_rows_selected
       req(selected_row)
 
-      row <- prospects_data()[selected_row, ]
-      prospect <- get_prospect_by_id(row$id)
+      row <- prospects_table_data()[selected_row, ]
+      prospect <- get_prospect_by_id(row$ID)
 
       selected_prospect(prospect)
 
@@ -361,6 +369,21 @@ mod_prospects_server <- function(id) {
         display_value(prospect$state, "")
       ))
 
+      parsed_research <- parse_research_notes_for_display(
+        prospect$research_notes,
+        prospect$research_sources
+      )
+
+      research_ui <- if (isTRUE(parsed_research$has_research)) {
+        tags$details(
+          class = "details-panel",
+          tags$summary("Research"),
+          research_notes_ui(prospect$research_notes, prospect$research_sources)
+        )
+      } else {
+        NULL
+      }
+
       tagList(
         div(
           class = "prospect-heading",
@@ -388,7 +411,7 @@ mod_prospects_server <- function(id) {
         ),
         note_block_ui("Reason", prospect$reason_for_outreach),
         note_block_ui("Personalization", prospect$personalization_notes),
-        note_block_ui("Research", prospect$research_notes),
+        research_ui,
         note_block_ui("Reply / Outcome", prospect$reply_notes)
       )
     })

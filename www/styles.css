@@ -258,6 +258,25 @@ body {
   white-space: pre-wrap;
 }
 
+.research-list {
+  margin: 6px 0 0 0;
+  padding-left: 18px;
+}
+
+.research-list li {
+  margin-bottom: 5px;
+  overflow-wrap: anywhere;
+}
+
+.research-status {
+  background: #f6f9fc;
+  border: 1px solid #dce6ef;
+  border-radius: 8px;
+  color: #40505f;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
 .empty-state {
   border: 1px dashed #cfd6de;
   border-radius: 8px;
@@ -361,12 +380,45 @@ body {
   font-size: 13px;
 }
 
+.signal-table {
+  table-layout: fixed;
+  width: 100% !important;
+}
+
 table.dataTable tbody td {
+  overflow-wrap: anywhere;
+  white-space: normal;
   vertical-align: top;
+}
+
+table.dataTable thead th {
+  overflow-wrap: normal;
+  white-space: normal;
 }
 
 table.dataTable tbody tr:hover {
   background: #f6f9fc;
+}
+
+.modal-dialog.modal-lg {
+  width: min(1100px, calc(100vw - 48px));
+}
+
+.modal-title-row {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.prospect-modal .tab-content {
+  padding-top: 12px;
+}
+
+.modal-research-pane {
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 @media (max-width: 768px) {

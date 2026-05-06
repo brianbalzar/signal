@@ -60,6 +60,10 @@ mod_queue_server <- function(id) {
       prospects
     })
 
+    queue_table_data <- reactive({
+      format_queue_table_data(queue_data())
+    })
+
     output$queue_counts <- renderUI({
       refresh_counter()
 
@@ -95,16 +99,32 @@ mod_queue_server <- function(id) {
     })
 
     output$queue_table <- renderDT({
+      dblclick_input <- session$ns("queue_table_row_dblclick")
+
       datatable(
-        queue_data(),
+        queue_table_data(),
         rownames = FALSE,
         selection = "single",
+        class = "compact stripe hover signal-table",
         options = list(
           pageLength = 8,
-          autoWidth = TRUE,
-          scrollX = TRUE,
-          dom = "tip"
-        )
+          autoWidth = FALSE,
+          dom = "tip",
+          columnDefs = list(
+            list(visible = FALSE, targets = 0)
+          )
+        ),
+        callback = DT::JS(sprintf(
+          "
+          table.on('dblclick', 'tbody tr', function() {
+            var data = table.row(this).data();
+            if (data) {
+              Shiny.setInputValue('%s', data[0], {priority: 'event'});
+            }
+          });
+          ",
+          dblclick_input
+        ))
       )
     })
 
@@ -116,16 +136,34 @@ mod_queue_server <- function(id) {
       selected_row <- input$queue_table_rows_selected
       req(selected_row)
 
-      row <- queue_data()[selected_row, ]
-      prospect <- get_prospect_by_id(row$id)
+      row <- queue_table_data()[selected_row, ]
+      select_queue_prospect(row$ID, session, selected_prospect, latest_draft_id, latest_research, history_counter)
+    })
 
-      selected_prospect(prospect)
-      latest_draft_id(NULL)
-      latest_research(NULL)
-      history_counter(history_counter() + 1)
+    observeEvent(input$queue_table_row_dblclick, {
+      prospect <- select_queue_prospect(
+        input$queue_table_row_dblclick,
+        session,
+        selected_prospect,
+        latest_draft_id,
+        latest_research,
+        history_counter
+      )
 
-      updateTextInput(session, "draft_subject", value = "")
-      updateTextAreaInput(session, "draft_body", value = "")
+      if (!is.null(prospect)) {
+        show_prospect_modal(session$ns, prospect)
+      }
+    })
+
+    observeEvent(input$open_prospect_modal, {
+      prospect <- selected_prospect()
+
+      if (is.null(prospect)) {
+        showNotification("Select a prospect first.", type = "warning")
+        return()
+      }
+
+      show_prospect_modal(session$ns, prospect)
     })
 
     output$touch_history_table <- renderDT({
@@ -223,20 +261,23 @@ mod_queue_server <- function(id) {
       research <- latest_research()
       prospect <- selected_prospect()
 
-      if (!is.null(research)) {
-        return(note_block_ui("Research", research))
-      }
-
-      if (is.null(prospect) ||
-          is.null(prospect$research_notes) ||
-          is.na(prospect$research_notes) ||
-          prospect$research_notes == "") {
+      if (is.null(prospect)) {
         return(NULL)
       }
 
-      tagList(
-        note_block_ui("Research", prospect$research_notes),
-        note_block_ui("Sources", prospect$research_sources)
+      parsed_research <- parse_research_notes_for_display(
+        prospect$research_notes,
+        prospect$research_sources
+      )
+
+      if (is.null(research) && !isTRUE(parsed_research$has_research)) {
+        return(NULL)
+      }
+
+      div(
+        class = "research-status",
+        strong("Research saved."),
+        span(" Open the prospect to review the summary, signals, and sources.")
       )
     })
 
@@ -525,6 +566,64 @@ mod_queue_server <- function(id) {
       selected_prospect(NULL)
       refresh_counter(refresh_counter() + 1)
     })
+
+    observeEvent(input$modal_save_prospect, {
+      prospect <- selected_prospect()
+      req(prospect)
+
+      update_prospect(
+        prospect_id = prospect$id,
+        prospect = list(
+          first_name = empty_to_na(input$modal_first_name),
+          last_name = empty_to_na(input$modal_last_name),
+          company = empty_to_na(input$modal_company),
+          title = empty_to_na(input$modal_title),
+          email = empty_to_na(input$modal_email),
+          linkedin_url = empty_to_na(input$modal_linkedin_url),
+          website = empty_to_na(input$modal_website),
+          city = empty_to_na(input$modal_city),
+          state = empty_to_na(input$modal_state),
+          source = empty_to_na(input$modal_source),
+          segment = empty_to_na(input$modal_segment),
+          reason_for_outreach = empty_to_na(input$modal_reason_for_outreach),
+          personalization_notes = empty_to_na(input$modal_personalization_notes),
+          research_notes = prospect$research_notes,
+          research_sources = prospect$research_sources,
+          researched_at = prospect$researched_at,
+          status = input$modal_status,
+          sequence_stage = input$modal_sequence_stage,
+          next_touch = as.character(input$modal_next_touch),
+          reply_notes = empty_to_na(input$modal_reply_notes)
+        )
+      )
+
+      refreshed <- get_prospect_by_id(prospect$id)
+      selected_prospect(refreshed)
+      refresh_counter(refresh_counter() + 1)
+      history_counter(history_counter() + 1)
+      removeModal()
+
+      showNotification("Prospect saved.", type = "message")
+    })
+
+    observeEvent(input$modal_delete_prospect, {
+      prospect <- selected_prospect()
+      req(prospect)
+
+      delete_prospect(prospect$id)
+
+      selected_prospect(NULL)
+      latest_draft_id(NULL)
+      latest_research(NULL)
+      refresh_counter(refresh_counter() + 1)
+      history_counter(history_counter() + 1)
+
+      updateTextInput(session, "draft_subject", value = "")
+      updateTextAreaInput(session, "draft_body", value = "")
+      removeModal()
+
+      showNotification("Prospect deleted.", type = "warning")
+    })
   })
 }
 
@@ -558,4 +657,180 @@ queue_count_ui <- function(label, value) {
     tags$strong(value),
     tags$span(label)
   )
+}
+
+select_queue_prospect <- function(
+    prospect_id,
+    session,
+    selected_prospect,
+    latest_draft_id,
+    latest_research,
+    history_counter
+) {
+  prospect <- get_prospect_by_id(prospect_id)
+
+  if (is.null(prospect)) {
+    return(NULL)
+  }
+
+  selected_prospect(prospect)
+  latest_draft_id(NULL)
+  latest_research(NULL)
+  history_counter(history_counter() + 1)
+
+  updateTextInput(session, "draft_subject", value = "")
+  updateTextAreaInput(session, "draft_body", value = "")
+
+  prospect
+}
+
+show_prospect_modal <- function(ns, prospect) {
+  showModal(modalDialog(
+    title = tagList(
+      div(
+        class = "modal-title-row",
+        span(format_person_name(prospect)),
+        status_badge_ui(prospect$status)
+      )
+    ),
+    size = "l",
+    easyClose = TRUE,
+    div(
+      class = "prospect-modal",
+      div(
+        class = "detail-grid compact",
+        detail_item_ui("Company", prospect$company),
+        detail_item_ui("Title", prospect$title),
+        detail_item_ui("Email", prospect$email),
+        detail_item_ui("Location", format_location_value(prospect$city, prospect$state)),
+        detail_item_ui("Stage", format_sequence_stage(prospect$sequence_stage)),
+        detail_item_ui("Next Touch", prospect$next_touch)
+      ),
+      tabsetPanel(
+        type = "pills",
+        tabPanel(
+          "Details",
+          fluidRow(
+            column(6, textInput(ns("modal_first_name"), "First Name", value = display_value(prospect$first_name, ""))),
+            column(6, textInput(ns("modal_last_name"), "Last Name", value = display_value(prospect$last_name, "")))
+          ),
+          textInput(ns("modal_company"), "Company", value = display_value(prospect$company, "")),
+          textInput(ns("modal_title"), "Title", value = display_value(prospect$title, "")),
+          textInput(ns("modal_email"), "Email", value = display_value(prospect$email, "")),
+          textInput(ns("modal_linkedin_url"), "LinkedIn URL", value = display_value(prospect$linkedin_url, "")),
+          textInput(ns("modal_website"), "Website", value = display_value(prospect$website, "")),
+          fluidRow(
+            column(6, textInput(ns("modal_city"), "City", value = display_value(prospect$city, ""))),
+            column(6, textInput(ns("modal_state"), "State", value = display_value(prospect$state, "")))
+          ),
+          fluidRow(
+            column(
+              6,
+              selectInput(
+                ns("modal_source"),
+                "Source",
+                choices = PROSPECT_SOURCES,
+                selected = display_value(prospect$source, "")
+              )
+            ),
+            column(
+              6,
+              selectInput(
+                ns("modal_segment"),
+                "Segment",
+                choices = PROSPECT_SEGMENTS,
+                selected = display_value(prospect$segment, "")
+              )
+            )
+          )
+        ),
+        tabPanel(
+          "Notes",
+          textAreaInput(
+            ns("modal_reason_for_outreach"),
+            "Reason for Outreach",
+            rows = 4,
+            value = display_value(prospect$reason_for_outreach, "")
+          ),
+          textAreaInput(
+            ns("modal_personalization_notes"),
+            "Personalization Notes",
+            rows = 5,
+            value = display_value(prospect$personalization_notes, "")
+          )
+        ),
+        tabPanel(
+          "Research",
+          div(
+            class = "modal-research-pane",
+            research_notes_ui(prospect$research_notes, prospect$research_sources)
+          )
+        ),
+        tabPanel(
+          "Workflow",
+          fluidRow(
+            column(
+              6,
+              selectInput(
+                ns("modal_status"),
+                "Status",
+                choices = PROSPECT_STATUSES,
+                selected = display_value(prospect$status, DEFAULT_PROSPECT_STATUS)
+              )
+            ),
+            column(
+              6,
+              selectInput(
+                ns("modal_sequence_stage"),
+                "Sequence Stage",
+                choices = setNames(SEQUENCE_STAGES, paste0(
+                  SEQUENCE_STAGES,
+                  " - ",
+                  unname(SEQUENCE_STAGE_LABELS[as.character(SEQUENCE_STAGES)])
+                )),
+                selected = as.character(normalize_sequence_stage(prospect$sequence_stage))
+              )
+            )
+          ),
+          fluidRow(
+            column(
+              6,
+              dateInput(
+                ns("modal_next_touch"),
+                "Next Touch",
+                value = modal_next_touch_value(prospect$next_touch)
+              )
+            )
+          ),
+          textAreaInput(
+            ns("modal_reply_notes"),
+            "Reply / Outcome Notes",
+            rows = 4,
+            value = display_value(prospect$reply_notes, "")
+          )
+        )
+      )
+    ),
+    footer = tagList(
+      modalButton("Close"),
+      actionButton(ns("modal_delete_prospect"), "Delete Prospect", class = "btn-danger"),
+      actionButton(ns("modal_save_prospect"), "Save Prospect", class = "btn-primary")
+    )
+  ))
+}
+
+modal_next_touch_value <- function(next_touch) {
+  next_touch <- display_value(next_touch, "")
+
+  if (next_touch == "") {
+    return(Sys.Date())
+  }
+
+  value <- suppressWarnings(as.Date(next_touch))
+
+  if (is.na(value)) {
+    return(Sys.Date())
+  }
+
+  value
 }

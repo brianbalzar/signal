@@ -27,29 +27,29 @@ read_secrets <- function(path = "_secrets.yml") {
       call. = FALSE
     )
   }
-  
+
   yaml::read_yaml(path)
 }
 
 get_claude_config <- function() {
   secrets <- read_secrets()
-  
+
   if (is.null(secrets$claude$api_key) || secrets$claude$api_key == "") {
     stop("Missing claude.api_key in _secrets.yml.", call. = FALSE)
   }
-  
+
   model <- secrets$claude$model
-  
+
   if (is.null(model) || model == "") {
     model <- "claude-sonnet-4-6"
   }
-  
+
   web_search_type <- secrets$claude$web_search_type
-  
+
   if (is.null(web_search_type) || web_search_type == "") {
     web_search_type <- "web_search_20260209"
   }
-  
+
   list(
     api_key = secrets$claude$api_key,
     model = model,
@@ -64,7 +64,7 @@ load_prompt_template <- function(path = "prompts/intro_email.txt") {
   if (!file.exists(path)) {
     return(default_intro_prompt())
   }
-  
+
   paste(readLines(path, warn = FALSE), collapse = "\n")
 }
 
@@ -133,7 +133,7 @@ build_prospect_context <- function(prospect) {
 
 build_stage_instructions <- function(sequence_stage) {
   stage <- normalize_sequence_stage(sequence_stage)
-  
+
   if (stage == 0) {
     return(paste(
       "Email type: First-touch intro email.",
@@ -143,7 +143,7 @@ build_stage_instructions <- function(sequence_stage) {
       sep = "\n"
     ))
   }
-  
+
   if (stage == 1) {
     return(paste(
       "Email type: Follow-up 1.",
@@ -152,7 +152,7 @@ build_stage_instructions <- function(sequence_stage) {
       sep = "\n"
     ))
   }
-  
+
   if (stage == 2) {
     return(paste(
       "Email type: Follow-up 2.",
@@ -161,7 +161,7 @@ build_stage_instructions <- function(sequence_stage) {
       sep = "\n"
     ))
   }
-  
+
   if (stage == 3) {
     return(paste(
       "Email type: Breakup email.",
@@ -170,7 +170,7 @@ build_stage_instructions <- function(sequence_stage) {
       sep = "\n"
     ))
   }
-  
+
   paste(
     "Email type: Nurture email.",
     "Goal: Re-engage only if there is a useful reason.",
@@ -183,7 +183,7 @@ build_claude_prompt <- function(prospect) {
   base_prompt <- load_prompt_template()
   stage_instructions <- build_stage_instructions(prospect$sequence_stage)
   prospect_context <- build_prospect_context(prospect)
-  
+
   paste(
     base_prompt,
     "",
@@ -249,7 +249,7 @@ build_research_prompt <- function(prospect) {
   state <- prospect$state %||% ""
   website <- prospect$website %||% ""
   segment <- prospect$segment %||% ""
-  
+
   paste(
     "You are researching a public prospect for a facility consulting outbound email.",
     "",
@@ -349,7 +349,7 @@ call_claude_messages <- function(
     max_uses = 5
 ) {
   config <- get_claude_config()
-  
+
   body <- list(
     model = config$model,
     max_tokens = max_tokens,
@@ -361,7 +361,7 @@ call_claude_messages <- function(
       )
     )
   )
-  
+
   if (isTRUE(use_web_search)) {
     body$tools <- list(
       list(
@@ -371,7 +371,7 @@ call_claude_messages <- function(
       )
     )
   }
-  
+
   response <- httr2::request("https://api.anthropic.com/v1/messages") |>
     httr2::req_headers(
       "x-api-key" = config$api_key,
@@ -380,9 +380,9 @@ call_claude_messages <- function(
     ) |>
     httr2::req_body_json(body) |>
     httr2::req_perform()
-  
+
   parsed <- httr2::resp_body_json(response, simplifyVector = FALSE)
-  
+
   extract_text_from_claude_response(parsed)
 }
 
@@ -390,26 +390,26 @@ extract_text_from_claude_response <- function(parsed) {
   if (is.null(parsed$content) || length(parsed$content) == 0) {
     stop("Claude response did not include content.", call. = FALSE)
   }
-  
+
   text_blocks <- vapply(
     parsed$content,
     function(block) {
       if (!is.null(block$type) && block$type == "text") {
         return(block$text %||% "")
       }
-      
+
       ""
     },
     character(1)
   )
-  
+
   text <- paste(text_blocks, collapse = "\n")
   text <- trimws(text)
-  
+
   if (text == "") {
     stop("Claude response did not include text content.", call. = FALSE)
   }
-  
+
   text
 }
 
@@ -418,22 +418,22 @@ extract_text_from_claude_response <- function(parsed) {
 
 parse_claude_email_response <- function(raw_text) {
   cleaned <- strip_json_code_fence(raw_text)
-  
+
   parsed <- tryCatch(
     jsonlite::fromJSON(cleaned),
     error = function(e) NULL
   )
-  
+
   if (is.null(parsed)) {
     return(list(
       subject = "Draft email",
       body = clean_email_signature(clean_email_placeholders(cleaned))
     ))
   }
-  
+
   subject <- parsed$subject %||% "Draft email"
   body <- parsed$body %||% ""
-  
+
   list(
     subject = clean_email_placeholders(subject),
     body = clean_email_signature(clean_email_placeholders(body))
@@ -445,12 +445,13 @@ parse_claude_email_response <- function(raw_text) {
 
 parse_claude_research_response <- function(raw_text) {
   cleaned <- strip_json_code_fence(raw_text)
-  
+  json_candidate <- extract_json_object(cleaned)
+
   parsed <- tryCatch(
-    jsonlite::fromJSON(cleaned),
+    jsonlite::fromJSON(json_candidate),
     error = function(e) NULL
   )
-  
+
   if (is.null(parsed)) {
     return(list(
       summary = cleaned,
@@ -461,17 +462,17 @@ parse_claude_research_response <- function(raw_text) {
       raw = cleaned
     ))
   }
-  
+
   signals <- parsed$signals
   if (is.null(signals) || length(signals) == 0) {
     signals <- character(0)
   }
-  
+
   sources <- parsed$sources
   if (is.null(sources) || length(sources) == 0) {
     sources <- character(0)
   }
-  
+
   list(
     summary = parsed$summary %||% "",
     signals = as.character(signals),
@@ -485,19 +486,19 @@ parse_claude_research_response <- function(raw_text) {
 format_research_notes <- function(research_result) {
   signals <- research_result$signals %||% character(0)
   sources <- research_result$sources %||% character(0)
-  
+
   signals_text <- if (length(signals) > 0) {
     paste0("- ", signals, collapse = "\n")
   } else {
     "No specific public signals found."
   }
-  
+
   sources_text <- if (length(sources) > 0) {
     paste0("- ", sources, collapse = "\n")
   } else {
     "No sources returned."
   }
-  
+
   paste(
     "Research Summary:",
     research_result$summary %||% "",
@@ -547,7 +548,7 @@ research_prospect_with_claude <- function(prospect) {
   prompt <- build_research_prompt(prospect)
   raw_response <- call_claude_with_web_search(prompt)
   research_result <- parse_claude_research_response(raw_response)
-  
+
   research_result$formatted_notes <- format_research_notes(research_result)
   research_result
 }
@@ -568,17 +569,17 @@ research_prospect_with_claude_safe <- function(prospect) {
 
 fallback_research_result <- function(prospect, error_message = NULL) {
   company <- prospect$company %||% "this prospect"
-  
+
   summary <- paste0(
     "Claude research was unavailable for ",
     company,
     ". No public research was added."
   )
-  
+
   if (!is.null(error_message) && error_message != "") {
     summary <- paste0(summary, " Error: ", error_message)
   }
-  
+
   result <- list(
     summary = summary,
     signals = character(0),
@@ -587,7 +588,7 @@ fallback_research_result <- function(prospect, error_message = NULL) {
     sources = character(0),
     raw = summary
   )
-  
+
   result$formatted_notes <- format_research_notes(result)
   result
 }
@@ -597,31 +598,48 @@ fallback_research_result <- function(prospect, error_message = NULL) {
 
 strip_json_code_fence <- function(x) {
   cleaned <- trimws(x)
-  
+
   cleaned <- sub("^```json\\s*", "", cleaned)
   cleaned <- sub("^```\\s*", "", cleaned)
   cleaned <- sub("\\s*```$", "", cleaned)
-  
+
   trimws(cleaned)
+}
+
+extract_json_object <- function(x) {
+  x <- trimws(x)
+
+  if (grepl("^\\{", x)) {
+    return(x)
+  }
+
+  start <- regexpr("\\{", x)
+  ends <- gregexpr("\\}", x)[[1]]
+
+  if (start[1] < 1 || length(ends) == 0 || max(ends) <= start[1]) {
+    return(x)
+  }
+
+  substr(x, start[1], max(ends))
 }
 
 clean_email_placeholders <- function(x) {
   if (is.null(x) || length(x) == 0 || is.na(x)) {
     return("")
   }
-  
+
   x <- as.character(x)
-  
+
   x <- gsub("\\[Your Name\\]", "Brian", x, ignore.case = TRUE)
   x <- gsub("\\[your name\\]", "Brian", x, ignore.case = TRUE)
   x <- gsub("\\[Name\\]", "Brian", x, ignore.case = TRUE)
   x <- gsub("\\[Company\\]", "", x, ignore.case = TRUE)
   x <- gsub("\\[Prospect\\]", "", x, ignore.case = TRUE)
   x <- gsub("\\[First Name\\]", "", x, ignore.case = TRUE)
-  
+
   # Remove any remaining bracketed placeholders.
   x <- gsub("\\[[^\\]]+\\]", "", x)
-  
+
   trimws(x)
 }
 
@@ -629,10 +647,10 @@ clean_email_signature <- function(body) {
   if (is.null(body) || length(body) == 0 || is.na(body)) {
     return("")
   }
-  
+
   body <- trimws(as.character(body))
   body <- clean_email_placeholders(body)
-  
+
   # Normalize common generic signatures.
   body <- gsub(
     "(?i)\\n\\s*Thanks,?\\s*Brian\\s*$",
@@ -640,47 +658,47 @@ clean_email_signature <- function(body) {
     body,
     perl = TRUE
   )
-  
+
   body <- gsub(
     "(?i)\\n\\s*Thank you,?\\s*Brian\\s*$",
     "\n\nBest,\nBrian",
     body,
     perl = TRUE
   )
-  
+
   body <- gsub(
     "(?i)\\n\\s*Thanks,?\\s*$",
     "\n\nBest,\nBrian",
     body,
     perl = TRUE
   )
-  
+
   body <- gsub(
     "(?i)\\n\\s*Thank you,?\\s*$",
     "\n\nBest,\nBrian",
     body,
     perl = TRUE
   )
-  
+
   body <- gsub(
     "(?i)\\n\\s*Best regards,?\\s*Brian\\s*$",
     "\n\nBest,\nBrian",
     body,
     perl = TRUE
   )
-  
+
   body <- gsub(
     "(?i)\\n\\s*Regards,?\\s*Brian\\s*$",
     "\n\nBest,\nBrian",
     body,
     perl = TRUE
   )
-  
+
   # If the body does not end with Brian, append the approved signature.
   if (!grepl("(?i)\\bBrian\\s*$", body, perl = TRUE)) {
     body <- paste0(body, "\n\nBest,\nBrian")
   }
-  
+
   # If it ends with Brian but not the exact approved signature, normalize the last signoff.
   body <- gsub(
     "(?is)\\n\\s*(thanks|thank you|best regards|regards|best),?\\s*\\n?\\s*Brian\\s*$",
@@ -688,7 +706,7 @@ clean_email_signature <- function(body) {
     body,
     perl = TRUE
   )
-  
+
   trimws(body)
 }
 
@@ -706,16 +724,16 @@ fallback_generate_email_from_claude_service <- function(prospect, error_message 
   reason <- prospect$reason_for_outreach %||% "your facilities work"
   notes <- prospect$personalization_notes %||% ""
   research_notes <- prospect$research_notes %||% ""
-  
+
   if (reason == "your facilities work" && research_notes != "") {
     reason <- "some public information that may be relevant to your facilities work"
   }
-  
+
   stage <- normalize_sequence_stage(prospect$sequence_stage)
-  
+
   if (stage == 0) {
     subject <- paste("Quick question on", company)
-    
+
     body <- paste0(
       "Hi ", first_name, ",\n\n",
       "I noticed ", company, " and wanted to reach out because ", reason, ".\n\n",
@@ -727,7 +745,7 @@ fallback_generate_email_from_claude_service <- function(prospect, error_message 
     )
   } else if (stage == 1) {
     subject <- paste("Re:", "Quick question on", company)
-    
+
     body <- paste0(
       "Hi ", first_name, ",\n\n",
       "Just wanted to follow up on my note below.\n\n",
@@ -738,7 +756,7 @@ fallback_generate_email_from_claude_service <- function(prospect, error_message 
     )
   } else if (stage == 2) {
     subject <- "Worth comparing notes?"
-    
+
     body <- paste0(
       "Hi ", first_name, ",\n\n",
       "One more quick follow-up.\n\n",
@@ -749,7 +767,7 @@ fallback_generate_email_from_claude_service <- function(prospect, error_message 
     )
   } else {
     subject <- "Should I close the loop?"
-    
+
     body <- paste0(
       "Hi ", first_name, ",\n\n",
       "I do not want to keep cluttering your inbox.\n\n",
@@ -758,7 +776,7 @@ fallback_generate_email_from_claude_service <- function(prospect, error_message 
       "Brian"
     )
   }
-  
+
   list(
     subject = clean_email_placeholders(subject),
     body = clean_email_signature(clean_email_placeholders(body))
