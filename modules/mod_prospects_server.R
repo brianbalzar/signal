@@ -130,16 +130,21 @@ mod_prospects_server <- function(id) {
       )
     })
 
-    output$import_preview_table <- renderDT({
+    output$import_preview_ui <- renderUI({
       preview <- import_preview_data()
-      preview_table <- format_import_preview_table_data(preview)
 
       if (nrow(preview) == 0) {
-        return(datatable(
-          preview_table,
-          rownames = FALSE
-        ))
+        return(empty_state_ui("Upload a file and click Preview Import."))
       }
+
+      DTOutput(session$ns("import_preview_table"))
+    })
+
+    output$import_preview_table <- renderDT({
+      preview <- import_preview_data()
+      req(nrow(preview) > 0)
+
+      preview_table <- format_import_preview_table_data(preview)
 
       datatable(
         preview_table,

@@ -64,17 +64,41 @@ mod_queue_server <- function(id) {
       format_queue_table_data(queue_data())
     })
 
+    touch_history_data <- reactive({
+      history_counter()
+      prospect <- selected_prospect()
+
+      if (is.null(prospect)) {
+        return(NULL)
+      }
+
+      get_touches_for_prospect(prospect$id)
+    })
+
+    draft_history_data <- reactive({
+      history_counter()
+      prospect <- selected_prospect()
+
+      if (is.null(prospect)) {
+        return(NULL)
+      }
+
+      get_drafts_for_prospect(prospect$id)
+    })
+
     output$queue_counts <- renderUI({
       refresh_counter()
+      scope <- input$queue_scope %||% "Due or Overdue"
 
       prospects <- get_prospects(include_inactive = TRUE)
 
       if (nrow(prospects) == 0) {
         return(tags$div(
           class = "queue-counts",
-          queue_count_ui("Due Today", 0),
-          queue_count_ui("Overdue", 0),
-          queue_count_ui("Active", 0),
+          queue_count_ui("Due Today", 0, session$ns("filter_due_today"), scope == "Due Today"),
+          queue_count_ui("Overdue", 0, session$ns("filter_overdue"), scope == "Overdue"),
+          queue_count_ui("Active", 0, session$ns("filter_active"), scope == "All Active"),
+          queue_count_ui("Nurture", 0, session$ns("filter_nurture"), scope == "Nurture"),
           queue_count_ui("Terminal", 0)
         ))
       }
@@ -90,16 +114,46 @@ mod_queue_server <- function(id) {
 
       tags$div(
         class = "queue-counts",
-        queue_count_ui("Due Today", due_today),
-        queue_count_ui("Overdue", overdue),
-        queue_count_ui("Active", nrow(active)),
-        queue_count_ui("Nurture", nrow(nurture)),
+        queue_count_ui("Due Today", due_today, session$ns("filter_due_today"), scope == "Due Today"),
+        queue_count_ui("Overdue", overdue, session$ns("filter_overdue"), scope == "Overdue"),
+        queue_count_ui("Active", nrow(active), session$ns("filter_active"), scope == "All Active"),
+        queue_count_ui("Nurture", nrow(nurture), session$ns("filter_nurture"), scope == "Nurture"),
         queue_count_ui("Terminal", nrow(terminal))
       )
     })
 
+    observeEvent(input$filter_due_today, {
+      updateSelectInput(session, "queue_scope", selected = "Due Today")
+    })
+
+    observeEvent(input$filter_overdue, {
+      updateSelectInput(session, "queue_scope", selected = "Overdue")
+    })
+
+    observeEvent(input$filter_active, {
+      updateSelectInput(session, "queue_scope", selected = "All Active")
+    })
+
+    observeEvent(input$filter_nurture, {
+      updateSelectInput(session, "queue_scope", selected = "Nurture")
+    })
+
+    output$queue_table_ui <- renderUI({
+      if (nrow(queue_table_data()) > 0) {
+        return(DTOutput(session$ns("queue_table")))
+      }
+
+      queue_empty_state_ui(
+        scope = input$queue_scope %||% "Due or Overdue",
+        segment = input$queue_segment_filter %||% "All",
+        source = input$queue_source_filter %||% "All"
+      )
+    })
+
     output$queue_table <- renderDT({
+      req(nrow(queue_table_data()) > 0)
       dblclick_input <- session$ns("queue_table_row_dblclick")
+      click_input <- session$ns("queue_table_row_click")
 
       datatable(
         queue_table_data(),
@@ -116,6 +170,13 @@ mod_queue_server <- function(id) {
         ),
         callback = DT::JS(sprintf(
           "
+          table.on('click', 'tbody tr', function() {
+            var data = table.row(this).data();
+            if (data) {
+              Shiny.setInputValue('%s', data[0], {priority: 'event'});
+            }
+          });
+
           table.on('dblclick', 'tbody tr', function() {
             var data = table.row(this).data();
             if (data) {
@@ -123,6 +184,7 @@ mod_queue_server <- function(id) {
             }
           });
           ",
+          click_input,
           dblclick_input
         ))
       )
@@ -136,8 +198,25 @@ mod_queue_server <- function(id) {
       selected_row <- input$queue_table_rows_selected
       req(selected_row)
 
-      row <- queue_table_data()[selected_row, ]
+      table_data <- queue_table_data()
+
+      if (selected_row > nrow(table_data)) {
+        return()
+      }
+
+      row <- table_data[selected_row, ]
       select_queue_prospect(row$ID, session, selected_prospect, latest_draft_id, latest_research, history_counter)
+    })
+
+    observeEvent(input$queue_table_row_click, {
+      select_queue_prospect(
+        input$queue_table_row_click,
+        session,
+        selected_prospect,
+        latest_draft_id,
+        latest_research,
+        history_counter
+      )
     })
 
     observeEvent(input$queue_table_row_dblclick, {
@@ -166,57 +245,100 @@ mod_queue_server <- function(id) {
       show_prospect_modal(session$ns, prospect)
     })
 
-    output$touch_history_table <- renderDT({
-      history_counter()
-      prospect <- selected_prospect()
+    output$prospect_action_buttons <- renderUI({
+      has_selection <- !is.null(selected_prospect())
 
-      if (is.null(prospect)) {
-        return(datatable(
-          data.frame(Message = "Select a prospect to view touch history."),
-          rownames = FALSE
-        ))
+      div(
+        class = "button-row",
+        queue_action_button(session$ns, "open_prospect_modal", "Open Prospect", enabled = has_selection),
+        queue_action_button(session$ns, "research_prospect", "Research Prospect", enabled = has_selection)
+      )
+    })
+
+    output$draft_action_buttons <- renderUI({
+      has_selection <- !is.null(selected_prospect())
+
+      div(
+        class = "button-row",
+        queue_action_button(
+          session$ns,
+          "generate_draft",
+          "Generate Draft",
+          class = "btn-primary",
+          enabled = has_selection
+        ),
+        queue_action_button(session$ns, "generate_local_draft", "Create Local Draft", enabled = has_selection),
+        queue_action_button(session$ns, "log_sent", "Log Email as Sent", enabled = has_selection),
+        queue_action_button(
+          session$ns,
+          "snooze",
+          paste0("Snooze ", DEFAULT_QUEUE_SNOOZE_DAYS, " Days"),
+          enabled = has_selection
+        )
+      )
+    })
+
+    output$outcome_action_buttons <- renderUI({
+      has_selection <- !is.null(selected_prospect())
+
+      div(
+        class = "button-row",
+        queue_action_button(session$ns, "mark_replied", "Mark Replied", class = "btn-success", enabled = has_selection),
+        queue_action_button(session$ns, "mark_not_interested", "Not Interested", class = "btn-warning", enabled = has_selection),
+        queue_action_button(session$ns, "mark_bounced", "Mark Bounced", class = "btn-warning", enabled = has_selection),
+        queue_action_button(session$ns, "mark_dnc", "Do Not Contact", class = "btn-danger", enabled = has_selection)
+      )
+    })
+
+    output$touch_history_ui <- renderUI({
+      touches <- touch_history_data()
+
+      if (is.null(touches)) {
+        return(empty_state_ui("Select a prospect to view touch history."))
       }
-
-      touches <- get_touches_for_prospect(prospect$id)
 
       if (nrow(touches) == 0) {
-        return(datatable(
-          data.frame(Message = "No touches logged yet."),
-          rownames = FALSE
-        ))
+        return(empty_state_ui("No touches logged yet."))
       }
+
+      DTOutput(session$ns("touch_history_table"))
+    })
+
+    output$touch_history_table <- renderDT({
+      touches <- touch_history_data()
+      req(!is.null(touches), nrow(touches) > 0)
 
       datatable(
         touches[, c("created_at", "touch_type", "outcome", "sequence_stage", "subject")],
         rownames = FALSE,
-        options = list(pageLength = 5, autoWidth = TRUE, scrollX = TRUE)
+        class = "compact stripe hover signal-table",
+        options = list(pageLength = 5, autoWidth = FALSE, dom = "tip")
       )
     })
 
-    output$draft_history_table <- renderDT({
-      history_counter()
-      prospect <- selected_prospect()
+    output$draft_history_ui <- renderUI({
+      drafts <- draft_history_data()
 
-      if (is.null(prospect)) {
-        return(datatable(
-          data.frame(Message = "Select a prospect to view draft history."),
-          rownames = FALSE
-        ))
+      if (is.null(drafts)) {
+        return(empty_state_ui("Select a prospect to view draft history."))
       }
-
-      drafts <- get_drafts_for_prospect(prospect$id)
 
       if (nrow(drafts) == 0) {
-        return(datatable(
-          data.frame(Message = "No drafts saved yet."),
-          rownames = FALSE
-        ))
+        return(empty_state_ui("No drafts saved yet."))
       }
+
+      DTOutput(session$ns("draft_history_table"))
+    })
+
+    output$draft_history_table <- renderDT({
+      drafts <- draft_history_data()
+      req(!is.null(drafts), nrow(drafts) > 0)
 
       datatable(
         drafts[, c("created_at", "status", "sequence_stage", "subject")],
         rownames = FALSE,
-        options = list(pageLength = 5, autoWidth = TRUE, scrollX = TRUE)
+        class = "compact stripe hover signal-table",
+        options = list(pageLength = 5, autoWidth = FALSE, dom = "tip")
       )
     })
 
@@ -651,12 +773,103 @@ build_mailto_url <- function(to, subject = "", body = "") {
   )
 }
 
-queue_count_ui <- function(label, value) {
-  tags$div(
-    class = "queue-count",
+queue_count_ui <- function(label, value, input_id = NULL, active = FALSE) {
+  class <- paste(
+    "queue-count",
+    if (!is.null(input_id)) "queue-count-button" else "",
+    if (isTRUE(active)) "active" else ""
+  )
+
+  content <- tagList(
     tags$strong(value),
     tags$span(label)
   )
+
+  if (is.null(input_id)) {
+    return(tags$div(class = class, content))
+  }
+
+  actionLink(
+    inputId = input_id,
+    label = content,
+    class = class
+  )
+}
+
+queue_action_button <- function(ns, input_id, label, class = NULL, enabled = TRUE) {
+  args <- list(
+    inputId = ns(input_id),
+    label = label
+  )
+
+  if (!is.null(class)) {
+    args$class <- class
+  }
+
+  if (!isTRUE(enabled)) {
+    args$disabled <- "disabled"
+  }
+
+  do.call(actionButton, args)
+}
+
+queue_empty_state_ui <- function(scope, segment = "All", source = "All") {
+  prospects <- get_prospects(include_inactive = TRUE)
+
+  if (nrow(prospects) == 0) {
+    return(empty_state_ui("No prospects have been added yet."))
+  }
+
+  active <- prospects[!is_terminal_status(prospects$status), ]
+
+  if (!is.null(segment) && segment != "All") {
+    active <- active[!is.na(active$segment) & active$segment == segment, ]
+  }
+
+  if (!is.null(source) && source != "All") {
+    active <- active[!is.na(active$source) & active$source == source, ]
+  }
+
+  if (nrow(active) == 0) {
+    return(empty_state_ui("No active prospects match these filters."))
+  }
+
+  next_touch <- suppressWarnings(as.Date(active$next_touch))
+  today <- Sys.Date()
+  due_or_overdue <- active[is.na(next_touch) | next_touch <= today, ]
+  future <- active[!is.na(next_touch) & next_touch > today, ]
+
+  if (scope == "Due or Overdue" && nrow(due_or_overdue) == 0 && nrow(future) > 0) {
+    return(empty_state_ui(tagList(
+      tags$strong("No due prospects."),
+      tags$span(paste(
+        pluralize_count(nrow(future), "active prospect is", "active prospects are"),
+        "scheduled for later. Click Active above or change Queue View to All Active."
+      ))
+    )))
+  }
+
+  if (scope == "Due Today") {
+    return(empty_state_ui("No prospects are due today."))
+  }
+
+  if (scope == "Overdue") {
+    return(empty_state_ui("No prospects are overdue."))
+  }
+
+  if (scope == "Nurture") {
+    return(empty_state_ui("No nurture prospects match these filters."))
+  }
+
+  empty_state_ui("No prospects match the current queue filters.")
+}
+
+pluralize_count <- function(value, singular, plural) {
+  if (value == 1) {
+    return(paste(value, singular))
+  }
+
+  paste(value, plural)
 }
 
 select_queue_prospect <- function(

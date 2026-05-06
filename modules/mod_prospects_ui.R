@@ -114,7 +114,7 @@ mod_prospects_ui <- function(id) {
             span(class = "panel-kicker", "Ready, duplicate, invalid")
           ),
 
-          DTOutput(ns("import_preview_table"))
+          uiOutput(ns("import_preview_ui"))
         )
       )
     ),

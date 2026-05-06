@@ -80,7 +80,7 @@ mod_queue_ui <- function(id) {
             h3("Queue"),
             span(class = "panel-kicker", "Double-click for details")
           ),
-          DTOutput(ns("queue_table"))
+          uiOutput(ns("queue_table_ui"))
         )
       ),
 
@@ -96,17 +96,7 @@ mod_queue_ui <- function(id) {
           ),
           uiOutput(ns("selected_summary")),
 
-          div(
-            class = "button-row",
-            actionButton(
-              ns("open_prospect_modal"),
-              "Open Prospect"
-            ),
-            actionButton(
-              ns("research_prospect"),
-              "Research Prospect"
-            )
-          ),
+          uiOutput(ns("prospect_action_buttons")),
 
           uiOutput(ns("research_summary"))
         )
@@ -126,54 +116,13 @@ mod_queue_ui <- function(id) {
           div(
             class = "action-group",
             h4("Draft"),
-            actionButton(
-              ns("generate_draft"),
-              "Generate Draft",
-              class = "btn-primary"
-            ),
-
-            actionButton(
-              ns("generate_local_draft"),
-              "Create Local Draft"
-            ),
-
-            actionButton(
-              ns("log_sent"),
-              "Log Email as Sent"
-            ),
-
-            actionButton(
-              ns("snooze"),
-              paste0("Snooze ", DEFAULT_QUEUE_SNOOZE_DAYS, " Days")
-            )
+            uiOutput(ns("draft_action_buttons"))
           ),
 
           div(
             class = "action-group",
             h4("Outcome"),
-            actionButton(
-              ns("mark_replied"),
-              "Mark Replied",
-              class = "btn-success"
-            ),
-
-            actionButton(
-              ns("mark_not_interested"),
-              "Not Interested",
-              class = "btn-warning"
-            ),
-
-            actionButton(
-              ns("mark_bounced"),
-              "Mark Bounced",
-              class = "btn-warning"
-            ),
-
-            actionButton(
-              ns("mark_dnc"),
-              "Do Not Contact",
-              class = "btn-danger"
-            )
+            uiOutput(ns("outcome_action_buttons"))
           )
         ),
 
@@ -182,8 +131,8 @@ mod_queue_ui <- function(id) {
           h3("History"),
           tabsetPanel(
             type = "pills",
-            tabPanel("Touches", DTOutput(ns("touch_history_table"))),
-            tabPanel("Drafts", DTOutput(ns("draft_history_table")))
+            tabPanel("Touches", uiOutput(ns("touch_history_ui"))),
+            tabPanel("Drafts", uiOutput(ns("draft_history_ui")))
           )
         )
       ),
@@ -192,7 +141,7 @@ mod_queue_ui <- function(id) {
         width = 7,
 
         div(
-          class = "panel-card",
+          class = "panel-card draft-card",
           h3("Draft"),
           textInput(ns("draft_subject"), "Subject"),
 

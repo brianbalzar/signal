@@ -127,8 +127,31 @@ body {
   background: #f2f5f8;
   border: 1px solid #dce3ea;
   border-radius: 8px;
+  color: #202327;
+  display: block;
   padding: 8px 10px;
   min-width: 92px;
+}
+
+.queue-count:hover,
+.queue-count:focus {
+  color: #202327;
+  text-decoration: none;
+}
+
+.queue-count-button {
+  cursor: pointer;
+}
+
+.queue-count-button:hover {
+  background: #e8f0f8;
+  border-color: #bfd0e0;
+}
+
+.queue-count.active {
+  background: #edf4ff;
+  border-color: #8db8e5;
+  box-shadow: inset 0 0 0 1px #8db8e5;
 }
 
 .queue-count strong {
@@ -159,6 +182,12 @@ body {
   border-radius: 6px;
   font-weight: 600;
   margin: 0 6px 6px 0;
+}
+
+.btn[disabled],
+.btn.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .button-row {
@@ -283,6 +312,26 @@ body {
   color: #6a747f;
   padding: 14px;
   text-align: center;
+}
+
+.empty-state strong,
+.empty-state span {
+  display: block;
+}
+
+.draft-card .form-group {
+  max-width: none;
+  width: 100%;
+}
+
+.draft-card .form-control,
+.draft-card textarea {
+  width: 100%;
+}
+
+.draft-card textarea {
+  min-height: 360px;
+  resize: vertical;
 }
 
 .status-badge {

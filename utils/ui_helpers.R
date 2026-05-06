@@ -100,21 +100,23 @@ format_queue_table_data <- function(prospects) {
       Stage = character(0),
       `Next Touch` = character(0),
       Segment = character(0),
-      check.names = FALSE
+      check.names = FALSE,
+      row.names = NULL
     ))
   }
 
   data.frame(
-    ID = prospects$id,
-    Prospect = vapply(seq_len(nrow(prospects)), function(i) {
+    ID = unname(prospects$id),
+    Prospect = unname(vapply(seq_len(nrow(prospects)), function(i) {
       format_person_name(prospects[i, ])
-    }, character(1)),
-    Company = vapply(prospects$company, display_value, character(1)),
-    Status = vapply(prospects$status, display_value, character(1)),
-    Stage = vapply(prospects$sequence_stage, format_sequence_stage, character(1)),
-    `Next Touch` = vapply(prospects$next_touch, display_value, character(1)),
-    Segment = vapply(prospects$segment, display_value, character(1)),
-    check.names = FALSE
+    }, character(1))),
+    Company = unname(vapply(prospects$company, display_value, character(1))),
+    Status = unname(vapply(prospects$status, display_value, character(1))),
+    Stage = unname(vapply(prospects$sequence_stage, format_sequence_stage, character(1))),
+    `Next Touch` = unname(vapply(prospects$next_touch, display_value, character(1))),
+    Segment = unname(vapply(prospects$segment, display_value, character(1))),
+    check.names = FALSE,
+    row.names = NULL
   )
 }
 
@@ -131,24 +133,26 @@ format_prospects_table_data <- function(prospects) {
       `Next Touch` = character(0),
       Segment = character(0),
       Source = character(0),
-      check.names = FALSE
+      check.names = FALSE,
+      row.names = NULL
     ))
   }
 
   data.frame(
-    ID = prospects$id,
-    Prospect = vapply(seq_len(nrow(prospects)), function(i) {
+    ID = unname(prospects$id),
+    Prospect = unname(vapply(seq_len(nrow(prospects)), function(i) {
       format_person_name(prospects[i, ])
-    }, character(1)),
-    Company = vapply(prospects$company, display_value, character(1)),
-    Title = vapply(prospects$title, display_value, character(1)),
-    Email = vapply(prospects$email, display_value, character(1)),
-    Status = vapply(prospects$status, display_value, character(1)),
-    Stage = vapply(prospects$sequence_stage, format_sequence_stage, character(1)),
-    `Next Touch` = vapply(prospects$next_touch, display_value, character(1)),
-    Segment = vapply(prospects$segment, display_value, character(1)),
-    Source = vapply(prospects$source, display_value, character(1)),
-    check.names = FALSE
+    }, character(1))),
+    Company = unname(vapply(prospects$company, display_value, character(1))),
+    Title = unname(vapply(prospects$title, display_value, character(1))),
+    Email = unname(vapply(prospects$email, display_value, character(1))),
+    Status = unname(vapply(prospects$status, display_value, character(1))),
+    Stage = unname(vapply(prospects$sequence_stage, format_sequence_stage, character(1))),
+    `Next Touch` = unname(vapply(prospects$next_touch, display_value, character(1))),
+    Segment = unname(vapply(prospects$segment, display_value, character(1))),
+    Source = unname(vapply(prospects$source, display_value, character(1))),
+    check.names = FALSE,
+    row.names = NULL
   )
 }
 
@@ -282,7 +286,12 @@ parse_research_json <- function(notes) {
 }
 
 parse_research_sections <- function(notes) {
+  if (is.null(notes) || length(notes) == 0 || is.na(notes) || trimws(notes) == "") {
+    return(list())
+  }
+
   lines <- strsplit(notes, "\n", fixed = TRUE)[[1]]
+
   known <- c(
     "research summary" = "summary",
     "summary" = "summary",
@@ -299,7 +308,12 @@ parse_research_sections <- function(notes) {
 
   for (line in lines) {
     clean <- trimws(gsub(":$", "", line))
-    key <- known[[tolower(clean)]]
+    lookup_key <- tolower(clean)
+
+    key <- NULL
+    if (!is.na(lookup_key) && lookup_key %in% names(known)) {
+      key <- known[[lookup_key]]
+    }
 
     if (!is.null(key)) {
       current <- key
