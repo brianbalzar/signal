@@ -154,7 +154,11 @@ TOUCH_TYPES <- c(
 
 TOUCH_OUTCOMES <- c(
   "Sent",
+  "Connected",
+  "Voicemail",
   "No Reply",
+  "No Answer",
+  "Call Back Later",
   "Replied",
   "Bounced",
   "Not Interested",
@@ -165,6 +169,21 @@ TOUCH_OUTCOMES <- c(
 
 DEFAULT_TOUCH_TYPE <- "Email"
 DEFAULT_TOUCH_OUTCOME <- "Sent"
+
+
+# ---- Calls ------------------------------------------------------------------
+
+CALL_OUTCOMES <- c(
+  "Connected",
+  "Voicemail",
+  "No Answer",
+  "Call Back Later",
+  "Not Interested",
+  "Do Not Contact"
+)
+
+DEFAULT_CALL_OUTCOME <- "Connected"
+DEFAULT_CALL_BACK_DAYS <- 2
 
 
 # ---- Drafts -----------------------------------------------------------------

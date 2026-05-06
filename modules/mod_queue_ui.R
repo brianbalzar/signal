@@ -37,6 +37,7 @@ mod_queue_ui <- function(id) {
       ),
 
       uiOutput(ns("queue_counts")),
+      uiOutput(ns("today_focus")),
 
       div(
         class = "filter-grid",
@@ -115,8 +116,14 @@ mod_queue_ui <- function(id) {
 
           div(
             class = "action-group",
-            h4("Draft"),
+            h4("Email"),
             uiOutput(ns("draft_action_buttons"))
+          ),
+
+          div(
+            class = "action-group",
+            h4("Call"),
+            uiOutput(ns("call_action_buttons"))
           ),
 
           div(
@@ -141,29 +148,81 @@ mod_queue_ui <- function(id) {
         width = 7,
 
         div(
-          class = "panel-card draft-card",
-          h3("Draft"),
-          textInput(ns("draft_subject"), "Subject"),
+          class = "panel-card prep-card",
+          h3("Outreach Prep"),
 
-          textAreaInput(
-            ns("draft_body"),
-            "Body",
-            rows = 16,
-            placeholder = "Generated email draft will appear here."
-          ),
+          tabsetPanel(
+            type = "pills",
+            tabPanel(
+              "Email",
+              div(
+                class = "draft-card",
+                textInput(ns("draft_subject"), "Subject"),
 
-          actionButton(
-            ns("copy_draft"),
-            "Copy Draft"
-          ),
+                textAreaInput(
+                  ns("draft_body"),
+                  "Body",
+                  rows = 16,
+                  placeholder = "Generated email draft will appear here."
+                ),
 
-          uiOutput(ns("open_outlook_link")),
+                actionButton(
+                  ns("copy_draft"),
+                  "Copy Draft"
+                ),
 
-          br(),
+                uiOutput(ns("open_outlook_link")),
 
-          p(
-            class = "helper-text",
-            "Sending integration comes later. For now, this app tracks the workflow and saves the draft/touch history."
+                br(),
+
+                p(
+                  class = "helper-text",
+                  "Sending integration comes later. For now, this app tracks the workflow and saves the draft/touch history."
+                )
+              )
+            ),
+
+            tabPanel(
+              "Call",
+              div(
+                class = "call-card",
+                textAreaInput(
+                  ns("call_prep_body"),
+                  "Call Prep",
+                  rows = 15,
+                  placeholder = "Generated call talking points will appear here."
+                ),
+
+                fluidRow(
+                  column(
+                    width = 6,
+                    selectInput(
+                      ns("call_outcome"),
+                      "Call Outcome",
+                      choices = CALL_OUTCOMES,
+                      selected = DEFAULT_CALL_OUTCOME
+                    )
+                  ),
+                  column(
+                    width = 6,
+                    dateInput(
+                      ns("call_next_touch"),
+                      "Next Touch",
+                      value = Sys.Date() + DEFAULT_CALL_BACK_DAYS
+                    )
+                  )
+                ),
+
+                textAreaInput(
+                  ns("call_notes"),
+                  "Call Notes",
+                  rows = 5,
+                  placeholder = "What happened on the call?"
+                ),
+
+                uiOutput(ns("call_log_buttons"))
+              )
+            )
           )
         )
       )

@@ -126,8 +126,6 @@ format_prospects_table_data <- function(prospects) {
       ID = integer(0),
       Prospect = character(0),
       Company = character(0),
-      Title = character(0),
-      Email = character(0),
       Status = character(0),
       Stage = character(0),
       `Next Touch` = character(0),
@@ -144,8 +142,6 @@ format_prospects_table_data <- function(prospects) {
       format_person_name(prospects[i, ])
     }, character(1))),
     Company = unname(vapply(prospects$company, display_value, character(1))),
-    Title = unname(vapply(prospects$title, display_value, character(1))),
-    Email = unname(vapply(prospects$email, display_value, character(1))),
     Status = unname(vapply(prospects$status, display_value, character(1))),
     Stage = unname(vapply(prospects$sequence_stage, format_sequence_stage, character(1))),
     `Next Touch` = unname(vapply(prospects$next_touch, display_value, character(1))),

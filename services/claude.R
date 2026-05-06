@@ -4,6 +4,7 @@
 # Claude should only be called when the user intentionally takes an action:
 # - Generate Draft
 # - Research Prospect
+# - Prep Call
 #
 # This file handles:
 # - reading local secrets
@@ -314,6 +315,45 @@ build_research_prompt <- function(prospect) {
   )
 }
 
+build_call_prep_prompt <- function(prospect) {
+  prospect_context <- build_prospect_context(prospect)
+
+  paste(
+    "You are preparing a seller for a phone call with a facility prospect.",
+    "",
+    "Goal:",
+    "Create concise talking points that help Brian make a useful, low-pressure call.",
+    "",
+    "Important rules:",
+    "- Do not write a long script.",
+    "- Do not invent facts.",
+    "- Use the prospect data and research notes if available.",
+    "- Keep the tone plainspoken, consultative, and practical.",
+    "- Focus on facility performance, HVAC, controls, analytics, reliability, comfort, energy, and operations where relevant.",
+    "- Do not claim the prospect has a problem.",
+    "- Use soft language such as 'may be worth asking,' 'could be relevant,' or 'I noticed.'",
+    "- Include a voicemail option.",
+    "- Include a simple follow-up email angle if the call does not connect.",
+    "",
+    "Output format:",
+    "Return only valid JSON with exactly these keys:",
+    "{",
+    '  "objective": "string",',
+    '  "opener": "string",',
+    '  "talking_points": ["point 1", "point 2", "point 3"],',
+    '  "discovery_questions": ["question 1", "question 2", "question 3"],',
+    '  "voicemail": "string",',
+    '  "follow_up_angle": "string"',
+    "}",
+    "",
+    "Do not wrap the JSON in markdown.",
+    "",
+    "Prospect data:",
+    prospect_context,
+    sep = "\n"
+  )
+}
+
 
 # ---- Claude API calls --------------------------------------------------------
 
@@ -483,6 +523,38 @@ parse_claude_research_response <- function(raw_text) {
   )
 }
 
+parse_claude_call_prep_response <- function(raw_text) {
+  cleaned <- strip_json_code_fence(raw_text)
+  json_candidate <- extract_json_object(cleaned)
+
+  parsed <- tryCatch(
+    jsonlite::fromJSON(json_candidate),
+    error = function(e) NULL
+  )
+
+  if (is.null(parsed)) {
+    return(list(
+      objective = "Make a useful, low-pressure call.",
+      opener = "",
+      talking_points = cleaned,
+      discovery_questions = character(0),
+      voicemail = "",
+      follow_up_angle = "",
+      raw = cleaned
+    ))
+  }
+
+  list(
+    objective = parsed$objective %||% "",
+    opener = parsed$opener %||% "",
+    talking_points = normalize_call_prep_values(parsed$talking_points),
+    discovery_questions = normalize_call_prep_values(parsed$discovery_questions),
+    voicemail = parsed$voicemail %||% "",
+    follow_up_angle = parsed$follow_up_angle %||% "",
+    raw = cleaned
+  )
+}
+
 format_research_notes <- function(research_result) {
   signals <- research_result$signals %||% character(0)
   sources <- research_result$sources %||% character(0)
@@ -518,6 +590,54 @@ format_research_notes <- function(research_result) {
   )
 }
 
+format_call_prep_notes <- function(call_prep) {
+  talking_points <- normalize_call_prep_values(call_prep$talking_points)
+  questions <- normalize_call_prep_values(call_prep$discovery_questions)
+
+  talking_points_text <- if (length(talking_points) > 0) {
+    paste0("- ", talking_points, collapse = "\n")
+  } else {
+    "- Ask what is top of mind for facilities performance right now."
+  }
+
+  questions_text <- if (length(questions) > 0) {
+    paste0("- ", questions, collapse = "\n")
+  } else {
+    "- Are HVAC, controls, comfort, or utility costs creating any operational pressure?"
+  }
+
+  paste(
+    "Call Objective:",
+    call_prep$objective %||% "",
+    "",
+    "Opener:",
+    call_prep$opener %||% "",
+    "",
+    "Talking Points:",
+    talking_points_text,
+    "",
+    "Discovery Questions:",
+    questions_text,
+    "",
+    "Voicemail:",
+    call_prep$voicemail %||% "",
+    "",
+    "Follow-Up Angle:",
+    call_prep$follow_up_angle %||% "",
+    sep = "\n"
+  )
+}
+
+normalize_call_prep_values <- function(values) {
+  if (is.null(values) || length(values) == 0) {
+    return(character(0))
+  }
+
+  values <- unlist(values, use.names = FALSE)
+  values <- trimws(as.character(values))
+  values[!is.na(values) & values != ""]
+}
+
 
 # ---- Public draft generation ------------------------------------------------
 
@@ -534,6 +654,37 @@ generate_email_safe <- function(prospect) {
     },
     error = function(e) {
       fallback_generate_email_from_claude_service(
+        prospect,
+        error_message = conditionMessage(e)
+      )
+    }
+  )
+}
+
+generate_call_prep <- function(prospect) {
+  prompt <- build_call_prep_prompt(prospect)
+  raw_response <- call_claude(prompt, max_tokens = 900, temperature = 0.3)
+  call_prep <- parse_claude_call_prep_response(raw_response)
+  fallback_name <- trimws(paste(prospect$first_name %||% "", prospect$last_name %||% ""))
+
+  if (fallback_name == "") {
+    fallback_name <- "Prospect"
+  }
+
+  list(
+    subject = paste("Call prep:", prospect$company %||% fallback_name),
+    body = format_call_prep_notes(call_prep),
+    raw = call_prep$raw
+  )
+}
+
+generate_call_prep_safe <- function(prospect) {
+  tryCatch(
+    {
+      generate_call_prep(prospect)
+    },
+    error = function(e) {
+      fallback_generate_call_prep_from_claude_service(
         prospect,
         error_message = conditionMessage(e)
       )
@@ -780,6 +931,55 @@ fallback_generate_email_from_claude_service <- function(prospect, error_message 
   list(
     subject = clean_email_placeholders(subject),
     body = clean_email_signature(clean_email_placeholders(body))
+  )
+}
+
+fallback_generate_call_prep_from_claude_service <- function(prospect, error_message = NULL) {
+  company <- prospect$company %||% "the organization"
+  first_name <- prospect$first_name %||% "there"
+  reason <- prospect$reason_for_outreach %||% "their facility work may be relevant"
+  research_notes <- prospect$research_notes %||% ""
+
+  public_signal <- if (research_notes != "") {
+    "Reference the saved research softly if it feels relevant."
+  } else {
+    "Use the reason for outreach and ask a practical facilities question."
+  }
+
+  if (!is.null(error_message) && error_message != "") {
+    public_signal <- paste(public_signal, "Claude call prep was unavailable, so this is a local prep.")
+  }
+
+  body <- paste(
+    "Call Objective:",
+    paste("Start a low-pressure conversation with", company, "about facility performance, HVAC, controls, analytics, or operational reliability."),
+    "",
+    "Opener:",
+    paste0("Hi ", first_name, ", this is Brian Balzar. I noticed ", company, " and wanted to ask a quick facilities-performance question."),
+    "",
+    "Talking Points:",
+    paste0("- Reason for outreach: ", reason),
+    "- Many HVAC and controls issues are hard to see until they show up as comfort complaints, utility spend, or operator workarounds.",
+    "- Analytics can help identify scheduling drift, overrides, sensor issues, simultaneous heating/cooling, and controls sequences that no longer match building use.",
+    paste0("- ", public_signal),
+    "",
+    "Discovery Questions:",
+    "- Are HVAC, controls, comfort, or utility costs creating any operational pressure right now?",
+    "- Are there facilities or buildings where performance has become harder to manage?",
+    "- Would it be useful to compare what we typically look for against what you are seeing?",
+    "",
+    "Voicemail:",
+    paste0("Hi ", first_name, ", this is Brian Balzar. I had a quick facilities-performance question for you around HVAC, controls, and analytics. I will send a short note as well."),
+    "",
+    "Follow-Up Angle:",
+    "Send a brief email referencing the call attempt and ask whether a short comparison conversation would be useful.",
+    sep = "\n"
+  )
+
+  list(
+    subject = paste("Call prep:", company),
+    body = body,
+    raw = body
   )
 }
 

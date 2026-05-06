@@ -11,9 +11,9 @@ test_that("research display parser handles raw JSON", {
     "suggested_personalization_notes": "Mention the project softly.",
     "sources": ["https://example.com"]
   }'
-  
+
   parsed <- parse_research_notes_for_display(raw)
-  
+
   expect_true(parsed$has_research)
   expect_equal(parsed$summary, "Found a capital project.")
   expect_equal(length(parsed$signals), 2)
@@ -31,11 +31,36 @@ test_that("queue table formatter returns readable columns", {
     segment = "Commercial Office",
     stringsAsFactors = FALSE
   )
-  
+
   table_data <- format_queue_table_data(prospects)
-  
+
   expect_true(all(c("Prospect", "Company", "Next Touch") %in% names(table_data)))
   expect_false("first_name" %in% names(table_data))
   expect_equal(table_data$Prospect, "Ada Lovelace")
   expect_equal(table_data$Stage, "0 - Intro Email")
+})
+
+test_that("prospects table formatter keeps the main list compact", {
+  prospects <- data.frame(
+    id = 1,
+    name = "Ada Lovelace",
+    company = "Analytical Engines Inc.",
+    title = "Facilities Director",
+    email = "ada@example.com",
+    status = "Ready to Email",
+    sequence_stage = 0,
+    next_touch = "2026-05-06",
+    segment = "Commercial Office",
+    source = "Manual",
+    stringsAsFactors = FALSE
+  )
+
+  table_data <- format_prospects_table_data(prospects)
+
+  expect_equal(
+    names(table_data),
+    c("ID", "Prospect", "Company", "Status", "Stage", "Next Touch", "Segment", "Source")
+  )
+  expect_false("Email" %in% names(table_data))
+  expect_false("Title" %in% names(table_data))
 })

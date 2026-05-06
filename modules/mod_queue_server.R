@@ -7,7 +7,12 @@ mod_queue_server <- function(id) {
     history_counter <- reactiveVal(0)
     selected_prospect <- reactiveVal(NULL)
     latest_draft_id <- reactiveVal(NULL)
+    latest_call_prep_id <- reactiveVal(NULL)
     latest_research <- reactiveVal(NULL)
+    generating_draft <- reactiveVal(FALSE)
+    generating_local_draft <- reactiveVal(FALSE)
+    researching_prospect <- reactiveVal(FALSE)
+    prepping_call <- reactiveVal(FALSE)
 
     queue_data <- reactive({
       refresh_counter()
@@ -122,6 +127,42 @@ mod_queue_server <- function(id) {
       )
     })
 
+    output$today_focus <- renderUI({
+      refresh_counter()
+
+      prospects <- get_prospects(include_inactive = TRUE)
+
+      if (nrow(prospects) == 0) {
+        return(NULL)
+      }
+
+      active <- prospects[!is_terminal_status(prospects$status), ]
+
+      if (nrow(active) == 0) {
+        return(NULL)
+      }
+
+      next_touch <- suppressWarnings(as.Date(active$next_touch))
+      today <- Sys.Date()
+      ready_now <- sum(is.na(next_touch) | next_touch <= today)
+      overdue <- sum(!is.na(next_touch) & next_touch < today)
+      due_today <- sum(!is.na(next_touch) & next_touch == today)
+      future_dates <- next_touch[!is.na(next_touch) & next_touch > today]
+      next_scheduled <- if (length(future_dates) > 0) {
+        as.character(min(future_dates))
+      } else {
+        "None"
+      }
+
+      tags$div(
+        class = "today-focus",
+        today_focus_item_ui("Ready now", ready_now),
+        today_focus_item_ui("Overdue", overdue),
+        today_focus_item_ui("Due today", due_today),
+        today_focus_item_ui("Next scheduled", next_scheduled)
+      )
+    })
+
     observeEvent(input$filter_due_today, {
       updateSelectInput(session, "queue_scope", selected = "Due Today")
     })
@@ -205,7 +246,15 @@ mod_queue_server <- function(id) {
       }
 
       row <- table_data[selected_row, ]
-      select_queue_prospect(row$ID, session, selected_prospect, latest_draft_id, latest_research, history_counter)
+      select_queue_prospect(
+        row$ID,
+        session,
+        selected_prospect,
+        latest_draft_id,
+        latest_call_prep_id,
+        latest_research,
+        history_counter
+      )
     })
 
     observeEvent(input$queue_table_row_click, {
@@ -214,6 +263,7 @@ mod_queue_server <- function(id) {
         session,
         selected_prospect,
         latest_draft_id,
+        latest_call_prep_id,
         latest_research,
         history_counter
       )
@@ -225,6 +275,7 @@ mod_queue_server <- function(id) {
         session,
         selected_prospect,
         latest_draft_id,
+        latest_call_prep_id,
         latest_research,
         history_counter
       )
@@ -247,33 +298,89 @@ mod_queue_server <- function(id) {
 
     output$prospect_action_buttons <- renderUI({
       has_selection <- !is.null(selected_prospect())
+      research_busy <- isTRUE(researching_prospect())
 
       div(
         class = "button-row",
         queue_action_button(session$ns, "open_prospect_modal", "Open Prospect", enabled = has_selection),
-        queue_action_button(session$ns, "research_prospect", "Research Prospect", enabled = has_selection)
+        queue_action_button(
+          session$ns,
+          "research_prospect",
+          if (research_busy) "Researching..." else "Research Prospect",
+          enabled = has_selection && !research_busy
+        )
       )
     })
 
     output$draft_action_buttons <- renderUI({
       has_selection <- !is.null(selected_prospect())
+      draft_busy <- isTRUE(generating_draft())
+      local_busy <- isTRUE(generating_local_draft())
 
       div(
         class = "button-row",
         queue_action_button(
           session$ns,
           "generate_draft",
-          "Generate Draft",
+          if (draft_busy) "Generating..." else "Generate Draft",
           class = "btn-primary",
-          enabled = has_selection
+          enabled = has_selection && !draft_busy && !local_busy
         ),
-        queue_action_button(session$ns, "generate_local_draft", "Create Local Draft", enabled = has_selection),
-        queue_action_button(session$ns, "log_sent", "Log Email as Sent", enabled = has_selection),
+        queue_action_button(
+          session$ns,
+          "generate_local_draft",
+          if (local_busy) "Creating..." else "Create Local Draft",
+          enabled = has_selection && !draft_busy && !local_busy
+        ),
+        queue_action_button(
+          session$ns,
+          "log_sent",
+          "Log Email as Sent",
+          enabled = has_selection && !draft_busy && !local_busy
+        ),
         queue_action_button(
           session$ns,
           "snooze",
           paste0("Snooze ", DEFAULT_QUEUE_SNOOZE_DAYS, " Days"),
           enabled = has_selection
+        )
+      )
+    })
+
+    output$call_action_buttons <- renderUI({
+      has_selection <- !is.null(selected_prospect())
+      call_busy <- isTRUE(prepping_call())
+
+      div(
+        class = "button-row",
+        queue_action_button(
+          session$ns,
+          "prep_call",
+          if (call_busy) "Prepping..." else "Prep Call",
+          class = "btn-primary",
+          enabled = has_selection && !call_busy
+        )
+      )
+    })
+
+    output$call_log_buttons <- renderUI({
+      has_selection <- !is.null(selected_prospect())
+      call_busy <- isTRUE(prepping_call())
+
+      div(
+        class = "button-row",
+        queue_action_button(
+          session$ns,
+          "copy_call_prep",
+          "Copy Call Prep",
+          enabled = has_selection && !call_busy
+        ),
+        queue_action_button(
+          session$ns,
+          "log_call",
+          "Log Call",
+          class = "btn-primary",
+          enabled = has_selection && !call_busy
         )
       )
     })
@@ -472,7 +579,18 @@ mod_queue_server <- function(id) {
       prospect <- selected_prospect()
       req(prospect)
 
-      draft <- generate_queue_draft(prospect)
+      if (isTRUE(generating_draft())) {
+        return()
+      }
+
+      generating_draft(TRUE)
+      on.exit(generating_draft(FALSE), add = TRUE)
+
+      draft <- withProgress(
+        message = "Generating email draft...",
+        value = 0.4,
+        generate_queue_draft(prospect)
+      )
 
       create_draft(
         prospect_id = prospect$id,
@@ -495,7 +613,18 @@ mod_queue_server <- function(id) {
       prospect <- selected_prospect()
       req(prospect)
 
-      research <- research_prospect_with_claude_safe(prospect)
+      if (isTRUE(researching_prospect())) {
+        return()
+      }
+
+      researching_prospect(TRUE)
+      on.exit(researching_prospect(FALSE), add = TRUE)
+
+      research <- withProgress(
+        message = "Researching prospect...",
+        value = 0.4,
+        research_prospect_with_claude_safe(prospect)
+      )
       research_notes <- research$formatted_notes %||% research$summary
       research_sources <- paste(research$sources %||% character(0), collapse = "\n")
 
@@ -516,7 +645,18 @@ mod_queue_server <- function(id) {
       prospect <- selected_prospect()
       req(prospect)
 
-      draft <- generate_queue_local_draft(prospect)
+      if (isTRUE(generating_local_draft())) {
+        return()
+      }
+
+      generating_local_draft(TRUE)
+      on.exit(generating_local_draft(FALSE), add = TRUE)
+
+      draft <- withProgress(
+        message = "Creating local draft...",
+        value = 0.4,
+        generate_queue_local_draft(prospect)
+      )
 
       create_draft(
         prospect_id = prospect$id,
@@ -557,6 +697,132 @@ mod_queue_server <- function(id) {
       )
 
       showNotification("Draft copied to clipboard.", type = "message")
+    })
+
+    observeEvent(input$prep_call, {
+      prospect <- selected_prospect()
+      req(prospect)
+
+      if (isTRUE(prepping_call())) {
+        return()
+      }
+
+      prepping_call(TRUE)
+      on.exit(prepping_call(FALSE), add = TRUE)
+
+      call_prep <- withProgress(
+        message = "Preparing call talking points...",
+        value = 0,
+        {
+          incProgress(0.35, detail = "Generating talking points")
+          prep <- generate_queue_call_prep(prospect)
+
+          incProgress(0.45, detail = "Saving call prep")
+          create_draft(
+            prospect_id = prospect$id,
+            subject = prep$subject,
+            body = prep$body,
+            sequence_stage = prospect$sequence_stage
+          )
+
+          prep
+        }
+      )
+
+      latest_call_prep <- get_latest_draft_for_prospect(prospect$id)
+
+      if (!is.null(latest_call_prep)) {
+        latest_call_prep_id(latest_call_prep$id)
+      }
+
+      updateTextAreaInput(session, "call_prep_body", value = call_prep$body)
+      history_counter(history_counter() + 1)
+
+      showNotification("Call prep generated and saved.", type = "message")
+    })
+
+    observeEvent(input$copy_call_prep, {
+      call_prep <- input$call_prep_body %||% ""
+
+      if (call_prep == "") {
+        showNotification("No call prep to copy.", type = "warning")
+        return()
+      }
+
+      session$sendCustomMessage(
+        "copy-draft-to-clipboard",
+        list(text = call_prep)
+      )
+
+      showNotification("Call prep copied to clipboard.", type = "message")
+    })
+
+    observeEvent(input$log_call, {
+      prospect <- selected_prospect()
+      req(prospect)
+
+      outcome <- input$call_outcome %||% DEFAULT_CALL_OUTCOME
+      call_prep <- empty_to_na(input$call_prep_body)
+      call_notes <- empty_to_na(input$call_notes)
+      next_touch <- input$call_next_touch
+
+      if (is.null(next_touch) || length(next_touch) == 0 || is.na(next_touch)) {
+        next_touch <- Sys.Date() + DEFAULT_CALL_BACK_DAYS
+      }
+
+      next_touch <- as.character(next_touch)
+      call_subject <- paste("Call:", outcome)
+      call_body <- build_call_touch_body(call_prep, call_notes)
+
+      if (is.null(latest_call_prep_id()) && !is.na(call_prep)) {
+        create_draft(
+          prospect_id = prospect$id,
+          subject = call_prep_subject(prospect),
+          body = call_prep,
+          sequence_stage = prospect$sequence_stage
+        )
+
+        latest_call_prep <- get_latest_draft_for_prospect(prospect$id)
+
+        if (!is.null(latest_call_prep)) {
+          latest_call_prep_id(latest_call_prep$id)
+        }
+      } else if (!is.null(latest_call_prep_id()) && !is.na(call_prep)) {
+        update_draft(
+          draft_id = latest_call_prep_id(),
+          subject = call_prep_subject(prospect),
+          body = call_prep,
+          status = DEFAULT_DRAFT_STATUS
+        )
+      }
+
+      log_touch(
+        prospect_id = prospect$id,
+        touch_type = if (outcome == "Voicemail") "Voicemail" else "Call",
+        subject = call_subject,
+        body = call_body,
+        outcome = outcome,
+        sequence_stage = prospect$sequence_stage,
+        advance_sequence = FALSE,
+        next_touch = next_touch
+      )
+
+      refreshed <- get_prospect_by_id(prospect$id)
+      history_counter(history_counter() + 1)
+      refresh_counter(refresh_counter() + 1)
+
+      if (is.null(refreshed) || is_terminal_status(refreshed$status)) {
+        selected_prospect(NULL)
+        latest_call_prep_id(NULL)
+        updateTextAreaInput(session, "call_prep_body", value = "")
+      } else {
+        selected_prospect(refreshed)
+      }
+
+      updateTextAreaInput(session, "call_notes", value = "")
+      updateDateInput(session, "call_next_touch", value = Sys.Date() + DEFAULT_CALL_BACK_DAYS)
+
+      showNotification("Call logged without advancing the email sequence.", type = "message")
     })
 
     observeEvent(input$log_sent, {
@@ -600,10 +866,15 @@ mod_queue_server <- function(id) {
 
       selected_prospect(NULL)
       latest_draft_id(NULL)
+      latest_call_prep_id(NULL)
       history_counter(history_counter() + 1)
 
       updateTextInput(session, "draft_subject", value = "")
       updateTextAreaInput(session, "draft_body", value = "")
+      updateTextAreaInput(session, "call_prep_body", value = "")
+      updateSelectInput(session, "call_outcome", selected = DEFAULT_CALL_OUTCOME)
+      updateDateInput(session, "call_next_touch", value = Sys.Date() + DEFAULT_CALL_BACK_DAYS)
+      updateTextAreaInput(session, "call_notes", value = "")
 
       refresh_counter(refresh_counter() + 1)
     })
@@ -736,12 +1007,17 @@ mod_queue_server <- function(id) {
 
       selected_prospect(NULL)
       latest_draft_id(NULL)
+      latest_call_prep_id(NULL)
       latest_research(NULL)
       refresh_counter(refresh_counter() + 1)
       history_counter(history_counter() + 1)
 
       updateTextInput(session, "draft_subject", value = "")
       updateTextAreaInput(session, "draft_body", value = "")
+      updateTextAreaInput(session, "call_prep_body", value = "")
+      updateSelectInput(session, "call_outcome", selected = DEFAULT_CALL_OUTCOME)
+      updateDateInput(session, "call_next_touch", value = Sys.Date() + DEFAULT_CALL_BACK_DAYS)
+      updateTextAreaInput(session, "call_notes", value = "")
       removeModal()
 
       showNotification("Prospect deleted.", type = "warning")
@@ -759,6 +1035,32 @@ generate_queue_draft <- function(prospect) {
 
 generate_queue_local_draft <- function(prospect) {
   fallback_generate_email_from_claude_service(prospect)
+}
+
+generate_queue_call_prep <- function(prospect) {
+  generate_call_prep_safe(prospect)
+}
+
+call_prep_subject <- function(prospect) {
+  paste("Call prep:", display_value(prospect$company, format_person_name(prospect)))
+}
+
+build_call_touch_body <- function(call_prep, call_notes) {
+  parts <- character(0)
+
+  if (!is.na(call_prep)) {
+    parts <- c(parts, "Call Prep:", call_prep)
+  }
+
+  if (!is.na(call_notes)) {
+    parts <- c(parts, "Call Notes:", call_notes)
+  }
+
+  if (length(parts) == 0) {
+    return(NA_character_)
+  }
+
+  paste(parts, collapse = "\n\n")
 }
 
 build_mailto_url <- function(to, subject = "", body = "") {
@@ -793,6 +1095,14 @@ queue_count_ui <- function(label, value, input_id = NULL, active = FALSE) {
     inputId = input_id,
     label = content,
     class = class
+  )
+}
+
+today_focus_item_ui <- function(label, value) {
+  tags$div(
+    class = "today-focus-item",
+    tags$span(label),
+    tags$strong(value)
   )
 }
 
@@ -877,6 +1187,7 @@ select_queue_prospect <- function(
     session,
     selected_prospect,
     latest_draft_id,
+    latest_call_prep_id,
     latest_research,
     history_counter
 ) {
@@ -888,11 +1199,16 @@ select_queue_prospect <- function(
 
   selected_prospect(prospect)
   latest_draft_id(NULL)
+  latest_call_prep_id(NULL)
   latest_research(NULL)
   history_counter(history_counter() + 1)
 
   updateTextInput(session, "draft_subject", value = "")
   updateTextAreaInput(session, "draft_body", value = "")
+  updateTextAreaInput(session, "call_prep_body", value = "")
+  updateSelectInput(session, "call_outcome", selected = DEFAULT_CALL_OUTCOME)
+  updateDateInput(session, "call_next_touch", value = Sys.Date() + DEFAULT_CALL_BACK_DAYS)
+  updateTextAreaInput(session, "call_notes", value = "")
 
   prospect
 }
@@ -924,35 +1240,51 @@ show_prospect_modal <- function(ns, prospect) {
         tabPanel(
           "Details",
           fluidRow(
-            column(6, textInput(ns("modal_first_name"), "First Name", value = display_value(prospect$first_name, ""))),
-            column(6, textInput(ns("modal_last_name"), "Last Name", value = display_value(prospect$last_name, "")))
-          ),
-          textInput(ns("modal_company"), "Company", value = display_value(prospect$company, "")),
-          textInput(ns("modal_title"), "Title", value = display_value(prospect$title, "")),
-          textInput(ns("modal_email"), "Email", value = display_value(prospect$email, "")),
-          textInput(ns("modal_linkedin_url"), "LinkedIn URL", value = display_value(prospect$linkedin_url, "")),
-          textInput(ns("modal_website"), "Website", value = display_value(prospect$website, "")),
-          fluidRow(
-            column(6, textInput(ns("modal_city"), "City", value = display_value(prospect$city, ""))),
-            column(6, textInput(ns("modal_state"), "State", value = display_value(prospect$state, "")))
-          ),
-          fluidRow(
             column(
               6,
-              selectInput(
-                ns("modal_source"),
-                "Source",
-                choices = PROSPECT_SOURCES,
-                selected = display_value(prospect$source, "")
+              div(
+                class = "modal-form-section",
+                h4("Contact"),
+                fluidRow(
+                  column(6, textInput(ns("modal_first_name"), "First Name", value = display_value(prospect$first_name, ""))),
+                  column(6, textInput(ns("modal_last_name"), "Last Name", value = display_value(prospect$last_name, "")))
+                ),
+                textInput(ns("modal_email"), "Email", value = display_value(prospect$email, "")),
+                textInput(ns("modal_linkedin_url"), "LinkedIn URL", value = display_value(prospect$linkedin_url, ""))
               )
             ),
             column(
               6,
-              selectInput(
-                ns("modal_segment"),
-                "Segment",
-                choices = PROSPECT_SEGMENTS,
-                selected = display_value(prospect$segment, "")
+              div(
+                class = "modal-form-section",
+                h4("Company"),
+                textInput(ns("modal_company"), "Company", value = display_value(prospect$company, "")),
+                textInput(ns("modal_title"), "Title", value = display_value(prospect$title, "")),
+                textInput(ns("modal_website"), "Website", value = display_value(prospect$website, "")),
+                fluidRow(
+                  column(6, textInput(ns("modal_city"), "City", value = display_value(prospect$city, ""))),
+                  column(6, textInput(ns("modal_state"), "State", value = display_value(prospect$state, "")))
+                ),
+                fluidRow(
+                  column(
+                    6,
+                    selectInput(
+                      ns("modal_source"),
+                      "Source",
+                      choices = PROSPECT_SOURCES,
+                      selected = display_value(prospect$source, "")
+                    )
+                  ),
+                  column(
+                    6,
+                    selectInput(
+                      ns("modal_segment"),
+                      "Segment",
+                      choices = PROSPECT_SEGMENTS,
+                      selected = display_value(prospect$segment, "")
+                    )
+                  )
+                )
               )
             )
           )

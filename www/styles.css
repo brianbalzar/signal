@@ -159,6 +159,43 @@ body {
   font-size: 18px;
 }
 
+.today-focus {
+  align-items: center;
+  background: #fbfcfd;
+  border: 1px solid #e2e7ec;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 4px 0;
+  padding: 8px;
+}
+
+.today-focus-item {
+  align-items: baseline;
+  border-right: 1px solid #dde4eb;
+  display: flex;
+  gap: 6px;
+  padding: 2px 12px 2px 4px;
+}
+
+.today-focus-item:last-child {
+  border-right: 0;
+}
+
+.today-focus-item span {
+  color: #637181;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.today-focus-item strong {
+  color: #202327;
+  font-size: 14px;
+}
+
 .form-group {
   margin-bottom: 12px;
 }
@@ -334,6 +371,29 @@ body {
   resize: vertical;
 }
 
+.prep-card .tab-content {
+  padding-top: 12px;
+}
+
+.call-card .form-group {
+  max-width: none;
+  width: 100%;
+}
+
+.call-card .form-control,
+.call-card textarea {
+  width: 100%;
+}
+
+.call-card textarea {
+  min-height: 160px;
+  resize: vertical;
+}
+
+.call-card #queue-call_prep_body {
+  min-height: 340px;
+}
+
 .status-badge {
   border: 1px solid #cfd6de;
   border-radius: 999px;
@@ -449,6 +509,16 @@ table.dataTable tbody tr:hover {
   background: #f6f9fc;
 }
 
+table.dataTable tbody tr.selected,
+table.dataTable tbody tr.selected > * {
+  background: #e8f0f8 !important;
+  color: #202327 !important;
+}
+
+table.dataTable tbody tr.selected td:first-child {
+  border-left: 4px solid #477db3;
+}
+
 .modal-dialog.modal-lg {
   width: min(1100px, calc(100vw - 48px));
 }
@@ -462,6 +532,20 @@ table.dataTable tbody tr:hover {
 
 .prospect-modal .tab-content {
   padding-top: 12px;
+}
+
+.modal-form-section {
+  background: #fbfcfd;
+  border: 1px solid #e3e8ed;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  padding: 14px;
+}
+
+.modal-form-section h4 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 12px 0;
 }
 
 .modal-research-pane {

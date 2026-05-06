@@ -15,16 +15,16 @@
 
 get_db_path <- function() {
   db_path <- getOption("signal.db_path", NULL)
-  
+
   if (is.null(db_path) || db_path == "") {
     db_path <- Sys.getenv("SIGNAL_DB_PATH", unset = "")
   }
-  
+
   if (is.null(db_path) || db_path == "") {
     db_path <- default_signal_db_path()
     seed_local_db_from_project_copy(db_path)
   }
-  
+
   db_path
 }
 
@@ -33,15 +33,15 @@ default_signal_db_path <- function() {
     file.path(Sys.getenv("LOCALAPPDATA", unset = ""), "Signal"),
     file.path(tempdir(), "Signal")
   )
-  
+
   candidates <- candidates[candidates != "" & !is.na(candidates)]
-  
+
   for (candidate in candidates) {
     if (directory_is_writable(candidate)) {
       return(file.path(candidate, "signal.db"))
     }
   }
-  
+
   file.path(tempdir(), "Signal", "signal.db")
 }
 
@@ -49,44 +49,44 @@ seed_local_db_from_project_copy <- function(db_path) {
   if (file.exists(db_path)) {
     return(invisible(FALSE))
   }
-  
+
   seed_candidates <- c(
     "data/signal.local.sqlite",
     "data/signal.sqlite"
   )
-  
+
   seed_candidates <- seed_candidates[file.exists(seed_candidates)]
-  
+
   if (length(seed_candidates) == 0) {
     return(invisible(FALSE))
   }
-  
+
   ensure_db_directory(db_path)
-  
+
   for (seed_path in seed_candidates) {
     file.copy(seed_path, db_path, overwrite = TRUE)
-    
+
     if (sqlite_file_is_readable(db_path)) {
       return(invisible(TRUE))
     }
-    
+
     unlink(db_path, force = TRUE)
   }
-  
+
   invisible(FALSE)
 }
 
 directory_is_writable <- function(path) {
   if (!dir.exists(path)) {
     ok <- suppressWarnings(dir.create(path, recursive = TRUE, showWarnings = FALSE))
-    
+
     if (!isTRUE(ok) && !dir.exists(path)) {
       return(FALSE)
     }
   }
-  
+
   test_file <- tempfile(tmpdir = path)
-  
+
   ok <- tryCatch(
     {
       file.create(test_file)
@@ -94,7 +94,7 @@ directory_is_writable <- function(path) {
     error = function(e) FALSE,
     warning = function(w) FALSE
   )
-  
+
   unlink(test_file, force = TRUE)
   isTRUE(ok)
 }
@@ -113,11 +113,11 @@ sqlite_file_is_readable <- function(path) {
 
 ensure_db_directory <- function(db_path) {
   db_dir <- dirname(db_path)
-  
+
   if (db_dir != "." && !dir.exists(db_dir)) {
     dir.create(db_dir, recursive = TRUE)
   }
-  
+
   invisible(TRUE)
 }
 
@@ -130,10 +130,10 @@ get_db <- function() {
 
 init_db <- function() {
   ensure_db_directory(get_db_path())
-  
+
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   dbExecute(con, "
     CREATE TABLE IF NOT EXISTS prospects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,7 +170,7 @@ init_db <- function() {
       updated_at TEXT
     )
   ")
-  
+
   dbExecute(con, "
     CREATE TABLE IF NOT EXISTS touches (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -189,7 +189,7 @@ init_db <- function() {
       FOREIGN KEY(prospect_id) REFERENCES prospects(id)
     )
   ")
-  
+
   dbExecute(con, "
     CREATE TABLE IF NOT EXISTS drafts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,7 +208,7 @@ init_db <- function() {
       FOREIGN KEY(prospect_id) REFERENCES prospects(id)
     )
   ")
-  
+
   create_indexes(con)
   apply_schema_migrations(con)
 }
@@ -221,14 +221,14 @@ apply_schema_migrations <- function(con) {
       applied_at TEXT
     )
   ")
-  
+
   record_schema_migration(con, "001_initial_schema")
   run_schema_migration(con, "002_add_research_fields", function() {
     add_column_if_missing(con, "prospects", "research_notes", "TEXT")
     add_column_if_missing(con, "prospects", "research_sources", "TEXT")
     add_column_if_missing(con, "prospects", "researched_at", "TEXT")
   })
-  
+
   invisible(TRUE)
 }
 
@@ -243,7 +243,7 @@ schema_migration_applied <- function(con, migration_id) {
     ",
     params = list(migration_id)
   )
-  
+
   nrow(result) > 0
 }
 
@@ -252,10 +252,10 @@ run_schema_migration <- function(con, migration_id, migrate) {
   if (schema_migration_applied(con, migration_id)) {
     return(invisible(FALSE))
   }
-  
+
   migrate()
   record_schema_migration(con, migration_id)
-  
+
   invisible(TRUE)
 }
 
@@ -274,18 +274,18 @@ record_schema_migration <- function(con, migration_id) {
       as.character(Sys.time())
     )
   )
-  
+
   invisible(TRUE)
 }
 
 
 add_column_if_missing <- function(con, table_name, column_name, column_type) {
   columns <- dbGetQuery(con, paste0("PRAGMA table_info(", table_name, ")"))
-  
+
   if (column_name %in% columns$name) {
     return(invisible(FALSE))
   }
-  
+
   dbExecute(
     con,
     paste(
@@ -296,7 +296,7 @@ add_column_if_missing <- function(con, table_name, column_name, column_type) {
       column_type
     )
   )
-  
+
   invisible(TRUE)
 }
 
@@ -306,22 +306,22 @@ create_indexes <- function(con) {
     CREATE INDEX IF NOT EXISTS idx_prospects_status
     ON prospects(status)
   ")
-  
+
   dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_prospects_next_touch
     ON prospects(next_touch)
   ")
-  
+
   dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_prospects_sequence_stage
     ON prospects(sequence_stage)
   ")
-  
+
   dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_touches_prospect_id
     ON touches(prospect_id)
   ")
-  
+
   dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_drafts_prospect_id
     ON drafts(prospect_id)
@@ -334,19 +334,19 @@ create_indexes <- function(con) {
 create_prospect <- function(prospect) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   now <- as.character(Sys.time())
-  
+
   status <- normalize_status(prospect$status %||% DEFAULT_PROSPECT_STATUS)
   sequence_stage <- normalize_sequence_stage(prospect$sequence_stage %||% DEFAULT_SEQUENCE_STAGE)
-  
+
   next_touch <- prospect$next_touch
   if (is.null(next_touch) || is.na(next_touch) || next_touch == "") {
     next_touch <- as.character(Sys.Date())
   } else {
     next_touch <- as.character(next_touch)
   }
-  
+
   dbExecute(
     con,
     "
@@ -402,7 +402,7 @@ create_prospect <- function(prospect) {
       now
     )
   )
-  
+
   invisible(TRUE)
 }
 
@@ -410,15 +410,15 @@ create_prospect <- function(prospect) {
 get_prospects <- function(include_inactive = TRUE) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   where_clause <- ""
-  
+
   if (!include_inactive) {
     where_clause <- "
       WHERE status NOT IN ('Replied', 'Not Interested', 'Do Not Contact')
     "
   }
-  
+
   dbGetQuery(
     con,
     paste0(
@@ -479,7 +479,7 @@ get_active_prospects <- function() {
 get_prospect_by_id <- function(prospect_id) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   result <- dbGetQuery(
     con,
     "
@@ -489,11 +489,11 @@ get_prospect_by_id <- function(prospect_id) {
     ",
     params = list(prospect_id)
   )
-  
+
   if (nrow(result) == 0) {
     return(NULL)
   }
-  
+
   result[1, ]
 }
 
@@ -501,21 +501,21 @@ get_prospect_by_id <- function(prospect_id) {
 update_prospect <- function(prospect_id, prospect) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   status <- normalize_status(prospect$status %||% DEFAULT_PROSPECT_STATUS)
   sequence_stage <- normalize_sequence_stage(prospect$sequence_stage %||% DEFAULT_SEQUENCE_STAGE)
-  
+
   next_touch <- prospect$next_touch
   if (is.null(next_touch) || is.na(next_touch) || next_touch == "") {
     next_touch <- NA_character_
   } else {
     next_touch <- as.character(next_touch)
   }
-  
+
   if (is_terminal_status(status)) {
     next_touch <- NA_character_
   }
-  
+
   dbExecute(
     con,
     "
@@ -569,7 +569,7 @@ update_prospect <- function(prospect_id, prospect) {
       prospect_id
     )
   )
-  
+
   invisible(TRUE)
 }
 
@@ -577,10 +577,10 @@ update_prospect <- function(prospect_id, prospect) {
 update_prospect_status <- function(prospect_id, status, reply_notes = NULL) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   now <- as.character(Sys.time())
   status <- normalize_status(status)
-  
+
   if (is_terminal_status(status)) {
     dbExecute(
       con,
@@ -619,7 +619,7 @@ update_prospect_status <- function(prospect_id, status, reply_notes = NULL) {
       )
     )
   }
-  
+
   invisible(TRUE)
 }
 
@@ -627,11 +627,11 @@ update_prospect_status <- function(prospect_id, status, reply_notes = NULL) {
 delete_prospect <- function(prospect_id) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   dbExecute(con, "DELETE FROM drafts WHERE prospect_id = ?", params = list(prospect_id))
   dbExecute(con, "DELETE FROM touches WHERE prospect_id = ?", params = list(prospect_id))
   dbExecute(con, "DELETE FROM prospects WHERE id = ?", params = list(prospect_id))
-  
+
   invisible(TRUE)
 }
 
@@ -641,9 +641,9 @@ delete_prospect <- function(prospect_id) {
 get_outreach_queue <- function() {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   today <- as.character(Sys.Date())
-  
+
   dbGetQuery(
     con,
     "
@@ -685,14 +685,14 @@ get_outreach_queue <- function() {
 snooze_prospect <- function(prospect_id, days = DEFAULT_QUEUE_SNOOZE_DAYS) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   days <- suppressWarnings(as.integer(days))
   if (is.na(days) || days < 1) {
     days <- DEFAULT_QUEUE_SNOOZE_DAYS
   }
-  
+
   next_touch <- as.character(Sys.Date() + days)
-  
+
   dbExecute(
     con,
     "
@@ -708,7 +708,7 @@ snooze_prospect <- function(prospect_id, days = DEFAULT_QUEUE_SNOOZE_DAYS) {
       prospect_id
     )
   )
-  
+
   invisible(TRUE)
 }
 
@@ -721,27 +721,29 @@ log_touch <- function(
     subject = NULL,
     body = NULL,
     outcome = DEFAULT_TOUCH_OUTCOME,
-    sequence_stage = NULL
+    sequence_stage = NULL,
+    advance_sequence = TRUE,
+    next_touch = NULL
 ) {
   prospect <- get_prospect_by_id(prospect_id)
-  
+
   if (is.null(prospect)) {
     stop("Prospect not found.", call. = FALSE)
   }
-  
+
   if (is.null(sequence_stage) || is.na(sequence_stage)) {
     sequence_stage <- prospect$sequence_stage
   }
-  
+
   sequence_stage <- normalize_sequence_stage(sequence_stage)
   outcome <- outcome %||% DEFAULT_TOUCH_OUTCOME
   touch_type <- touch_type %||% DEFAULT_TOUCH_TYPE
-  
+
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   now <- as.character(Sys.time())
-  
+
   dbExecute(
     con,
     "
@@ -765,10 +767,10 @@ log_touch <- function(
       now
     )
   )
-  
+
   if (is_terminal_outcome(outcome)) {
     next_status <- status_from_touch_outcome(outcome, current_status = prospect$status)
-    
+
     dbExecute(
       con,
       "
@@ -787,10 +789,10 @@ log_touch <- function(
         prospect_id
       )
     )
-    
+
     return(invisible(TRUE))
   }
-  
+
   if (outcome == "Bounced") {
     dbExecute(
       con,
@@ -809,14 +811,38 @@ log_touch <- function(
         prospect_id
       )
     )
-    
+
     return(invisible(TRUE))
   }
-  
+
+  if (!isTRUE(advance_sequence)) {
+    next_touch_value <- normalize_next_touch_value(next_touch, prospect$next_touch)
+
+    dbExecute(
+      con,
+      "
+      UPDATE prospects
+      SET
+        last_touch = ?,
+        next_touch = ?,
+        updated_at = ?
+      WHERE id = ?
+      ",
+      params = list(
+        as.character(Sys.Date()),
+        next_touch_value,
+        now,
+        prospect_id
+      )
+    )
+
+    return(invisible(TRUE))
+  }
+
   next_status <- get_next_status(sequence_stage)
   next_stage <- get_next_sequence_stage(sequence_stage)
   next_touch <- get_next_touch_date(sequence_stage)
-  
+
   dbExecute(
     con,
     "
@@ -838,7 +864,7 @@ log_touch <- function(
       prospect_id
     )
   )
-  
+
   invisible(TRUE)
 }
 
@@ -846,7 +872,7 @@ log_touch <- function(
 get_touches_for_prospect <- function(prospect_id) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   dbGetQuery(
     con,
     "
@@ -872,22 +898,22 @@ get_touches_for_prospect <- function(prospect_id) {
 
 create_draft <- function(prospect_id, subject, body, sequence_stage = NULL) {
   prospect <- get_prospect_by_id(prospect_id)
-  
+
   if (is.null(prospect)) {
     stop("Prospect not found.", call. = FALSE)
   }
-  
+
   if (is.null(sequence_stage) || is.na(sequence_stage)) {
     sequence_stage <- prospect$sequence_stage
   }
-  
+
   sequence_stage <- normalize_sequence_stage(sequence_stage)
-  
+
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   now <- as.character(Sys.time())
-  
+
   dbExecute(
     con,
     "
@@ -911,7 +937,7 @@ create_draft <- function(prospect_id, subject, body, sequence_stage = NULL) {
       now
     )
   )
-  
+
   dbExecute(
     con,
     "
@@ -926,7 +952,7 @@ create_draft <- function(prospect_id, subject, body, sequence_stage = NULL) {
     ",
     params = list(now, prospect_id)
   )
-  
+
   invisible(TRUE)
 }
 
@@ -934,7 +960,7 @@ create_draft <- function(prospect_id, subject, body, sequence_stage = NULL) {
 get_drafts_for_prospect <- function(prospect_id) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   dbGetQuery(
     con,
     "
@@ -959,7 +985,7 @@ get_drafts_for_prospect <- function(prospect_id) {
 get_latest_draft_for_prospect <- function(prospect_id) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   result <- dbGetQuery(
     con,
     "
@@ -979,11 +1005,11 @@ get_latest_draft_for_prospect <- function(prospect_id) {
     ",
     params = list(prospect_id)
   )
-  
+
   if (nrow(result) == 0) {
     return(NULL)
   }
-  
+
   result[1, ]
 }
 
@@ -991,11 +1017,11 @@ get_latest_draft_for_prospect <- function(prospect_id) {
 update_draft <- function(draft_id, subject, body, status = DEFAULT_DRAFT_STATUS) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   if (!status %in% DRAFT_STATUSES) {
     status <- DEFAULT_DRAFT_STATUS
   }
-  
+
   dbExecute(
     con,
     "
@@ -1015,7 +1041,7 @@ update_draft <- function(draft_id, subject, body, status = DEFAULT_DRAFT_STATUS)
       draft_id
     )
   )
-  
+
   invisible(TRUE)
 }
 
@@ -1028,11 +1054,11 @@ mark_draft_sent <- function(draft_id) {
 update_draft_status <- function(draft_id, status) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   if (!status %in% DRAFT_STATUSES) {
     status <- DEFAULT_DRAFT_STATUS
   }
-  
+
   dbExecute(
     con,
     "
@@ -1048,8 +1074,22 @@ update_draft_status <- function(draft_id, status) {
       draft_id
     )
   )
-  
+
   invisible(TRUE)
+}
+
+normalize_next_touch_value <- function(next_touch, fallback = NULL) {
+  value <- if (is.null(next_touch) || length(next_touch) == 0) {
+    fallback
+  } else {
+    next_touch[1]
+  }
+
+  if (is.null(value) || length(value) == 0 || is.na(value) || value == "") {
+    return(NA_character_)
+  }
+
+  as.character(value)
 }
 
 
@@ -1061,7 +1101,7 @@ update_prospect_research <- function(
 ) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   dbExecute(
     con,
     "
@@ -1081,7 +1121,7 @@ update_prospect_research <- function(
       prospect_id
     )
   )
-  
+
   invisible(TRUE)
 }
 
@@ -1091,17 +1131,17 @@ update_prospect_research <- function(
 export_signal_data <- function(export_root = "data/exports") {
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
   export_dir <- file.path(export_root, paste0("signal_export_", timestamp))
-  
+
   dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
-  
+
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
-  
+
   export_table <- function(table_name) {
     if (!table_name %in% dbListTables(con)) {
       return(invisible(FALSE))
     }
-    
+
     data <- dbGetQuery(con, paste("SELECT * FROM", table_name))
     write.csv(
       data,
@@ -1109,17 +1149,17 @@ export_signal_data <- function(export_root = "data/exports") {
       row.names = FALSE,
       na = ""
     )
-    
+
     invisible(TRUE)
   }
-  
+
   export_table("prospects")
   export_table("touches")
   export_table("drafts")
   export_table("schema_migrations")
-  
+
   db_path <- get_db_path()
-  
+
   if (file.exists(db_path)) {
     file.copy(
       from = db_path,
@@ -1127,6 +1167,6 @@ export_signal_data <- function(export_root = "data/exports") {
       overwrite = TRUE
     )
   }
-  
+
   normalizePath(export_dir, winslash = "\\", mustWork = FALSE)
 }
