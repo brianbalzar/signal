@@ -10,6 +10,7 @@ library(DT)
 source("utils/constants.R")
 source("utils/helpers.R")
 source("utils/formatters.R")
+source("utils/ui_helpers.R")
 
 source("services/outreach_logic.R")
 source("services/db.R")

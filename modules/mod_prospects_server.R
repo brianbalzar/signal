@@ -2,98 +2,99 @@
 
 mod_prospects_server <- function(id) {
   moduleServer(id, function(input, output, session) {
-    
+
     refresh_counter <- reactiveVal(0)
     selected_prospect <- reactiveVal(NULL)
     import_preview_data <- reactiveVal(data.frame())
     latest_import_summary <- reactiveVal(NULL)
     latest_export_dir <- reactiveVal(NULL)
-    
+
     # ---- Main prospects table ----------------------------------------------
-    
+
     prospects_data <- reactive({
       refresh_counter()
-      
+
       prospects <- get_prospects(include_inactive = TRUE)
-      
+
       if (nrow(prospects) == 0) {
         return(prospects)
       }
-      
+
       if (!is.null(input$status_filter) && input$status_filter != "All") {
         prospects <- prospects[prospects$status == input$status_filter, ]
       }
-      
+
       if (!is.null(input$segment_filter) && input$segment_filter != "All" && input$segment_filter != "") {
         prospects <- prospects[prospects$segment == input$segment_filter, ]
       }
-      
+
       prospects
     })
-    
+
     output$prospects_table <- renderDT({
       datatable(
         prospects_data(),
         rownames = FALSE,
         selection = "single",
         options = list(
-          pageLength = 10,
+          pageLength = 9,
           autoWidth = TRUE,
-          scrollX = TRUE
+          scrollX = TRUE,
+          dom = "tip"
         )
       )
     })
-    
+
     observeEvent(input$refresh_prospects, {
       refresh_counter(refresh_counter() + 1)
     })
-    
+
     observeEvent(input$export_data, {
       export_dir <- export_signal_data()
       latest_export_dir(export_dir)
-      
+
       showNotification("Data export complete.", type = "message")
     })
-    
+
     output$export_summary <- renderUI({
       export_dir <- latest_export_dir()
-      
+
       if (is.null(export_dir)) {
         return(NULL)
       }
-      
+
       tags$p(
         class = "helper-text",
         paste("Latest export:", export_dir)
       )
     })
-    
-    
+
+
     # ---- Import workflow ----------------------------------------------------
-    
+
     observeEvent(input$preview_import, {
       req(input$prospect_file)
-      
+
       preview <- build_import_preview(
         file_path = input$prospect_file$datapath,
         file_name = input$prospect_file$name,
         default_source = input$default_source,
         default_segment = input$default_segment
       )
-      
+
       import_preview_data(preview)
       latest_import_summary(NULL)
-      
+
       showNotification(
         paste("Preview loaded:", nrow(preview), "rows."),
         type = "message"
       )
     })
-    
+
     output$import_summary <- renderUI({
       preview <- import_preview_data()
       latest_summary <- latest_import_summary()
-      
+
       if (!is.null(latest_summary)) {
         return(tags$div(
           class = "helper-text",
@@ -101,16 +102,16 @@ mod_prospects_server <- function(id) {
           latest_summary
         ))
       }
-      
+
       if (nrow(preview) == 0) {
         return(NULL)
       }
-      
+
       counts <- table(factor(
         preview$import_status,
         levels = c("Ready", "Duplicate", "Invalid")
       ))
-      
+
       tags$div(
         class = "helper-text",
         strong("Preview summary: "),
@@ -121,24 +122,25 @@ mod_prospects_server <- function(id) {
         )
       )
     })
-    
+
     output$import_preview_table <- renderDT({
       preview <- import_preview_data()
-      
+
       if (nrow(preview) == 0) {
         return(datatable(
           data.frame(Message = "Upload a file and click Preview Import."),
           rownames = FALSE
         ))
       }
-      
+
       datatable(
         preview,
         rownames = FALSE,
         options = list(
-          pageLength = 10,
+          pageLength = 8,
           autoWidth = TRUE,
-          scrollX = TRUE
+          scrollX = TRUE,
+          dom = "tip"
         )
       ) |>
         DT::formatStyle(
@@ -150,30 +152,30 @@ mod_prospects_server <- function(id) {
           )
         )
     })
-    
+
     observeEvent(input$confirm_import, {
       preview <- import_preview_data()
-      
+
       if (nrow(preview) == 0) {
         showNotification("Nothing to import. Preview a file first.", type = "error")
         return()
       }
-      
+
       valid <- preview[preview$import_status %in% c("Ready", "Duplicate"), ]
       duplicate_count <- sum(preview$import_status == "Duplicate", na.rm = TRUE)
       invalid_count <- sum(preview$import_status == "Invalid", na.rm = TRUE)
       skipped_duplicate_count <- 0
       imported_duplicate_count <- 0
-      
+
       importable <- valid
-      
+
       if (isTRUE(input$skip_duplicates)) {
         importable <- importable[!importable$is_duplicate, ]
         skipped_duplicate_count <- duplicate_count
       } else {
         imported_duplicate_count <- sum(importable$is_duplicate, na.rm = TRUE)
       }
-      
+
       if (nrow(importable) == 0) {
         latest_import_summary(paste0(
           "0 added, ",
@@ -184,10 +186,10 @@ mod_prospects_server <- function(id) {
         showNotification(latest_import_summary(), type = "warning")
         return()
       }
-      
+
       for (i in seq_len(nrow(importable))) {
         row <- importable[i, ]
-        
+
         create_prospect(list(
           first_name = empty_to_na(row$first_name),
           last_name = empty_to_na(row$last_name),
@@ -208,7 +210,7 @@ mod_prospects_server <- function(id) {
           reply_notes = NA_character_
         ))
       }
-      
+
       latest_import_summary(
         paste0(
           nrow(importable), " added, ",
@@ -217,19 +219,19 @@ mod_prospects_server <- function(id) {
           invalid_count, " invalid."
         )
       )
-      
+
       showNotification(latest_import_summary(), type = "message")
-      
+
       import_preview_data(data.frame())
       refresh_counter(refresh_counter() + 1)
     })
-    
-    
+
+
     # ---- Manual add workflow ------------------------------------------------
-    
+
     observeEvent(input$add_prospect, {
       req(input$first_name, input$last_name, input$company)
-      
+
       manual_candidate <- data.frame(
         first_name = input$first_name,
         last_name = input$last_name,
@@ -238,9 +240,9 @@ mod_prospects_server <- function(id) {
         linkedin_url = input$linkedin_url,
         stringsAsFactors = FALSE
       )
-      
+
       duplicate_check <- flag_duplicate_prospects(manual_candidate)
-      
+
       if (nrow(duplicate_check) > 0 &&
           isTRUE(duplicate_check$is_duplicate[1]) &&
           !isTRUE(input$allow_manual_duplicate)) {
@@ -251,7 +253,7 @@ mod_prospects_server <- function(id) {
         )
         return()
       }
-      
+
       create_prospect(list(
         first_name = empty_to_na(input$first_name),
         last_name = empty_to_na(input$last_name),
@@ -271,30 +273,30 @@ mod_prospects_server <- function(id) {
         next_touch = as.character(input$next_touch),
         reply_notes = NA_character_
       ))
-      
+
       if (nrow(duplicate_check) > 0 && isTRUE(duplicate_check$is_duplicate[1])) {
         showNotification("Prospect added despite duplicate warning.", type = "warning")
       } else {
         showNotification("Prospect added.", type = "message")
       }
-      
+
       clear_manual_prospect_form(session)
-      
+
       refresh_counter(refresh_counter() + 1)
     })
-    
-    
+
+
     # ---- Selected prospect workflow ----------------------------------------
-    
+
     observeEvent(input$prospects_table_rows_selected, {
       selected_row <- input$prospects_table_rows_selected
       req(selected_row)
-      
+
       row <- prospects_data()[selected_row, ]
       prospect <- get_prospect_by_id(row$id)
-      
+
       selected_prospect(prospect)
-      
+
       updateTextInput(session, "selected_first_name", value = prospect$first_name %||% "")
       updateTextInput(session, "selected_last_name", value = prospect$last_name %||% "")
       updateTextInput(session, "selected_company", value = prospect$company %||% "")
@@ -322,7 +324,7 @@ mod_prospects_server <- function(id) {
         "selected_sequence_stage",
         selected = as.character(prospect$sequence_stage)
       )
-      
+
       next_touch_value <- if (
         is.null(prospect$next_touch) ||
         is.na(prospect$next_touch) ||
@@ -332,49 +334,69 @@ mod_prospects_server <- function(id) {
       } else {
         as.Date(prospect$next_touch)
       }
-      
+
       updateDateInput(session, "selected_next_touch", value = next_touch_value)
       updateTextAreaInput(session, "reply_notes", value = prospect$reply_notes %||% "")
     })
-    
-    output$selected_prospect_summary <- renderText({
+
+    output$selected_status_badge <- renderUI({
       prospect <- selected_prospect()
-      
+
       if (is.null(prospect)) {
-        return("Select a prospect from the table.")
+        return(NULL)
       }
-      
-      paste(
-        paste("Name:", paste(prospect$first_name, prospect$last_name)),
-        paste("Company:", prospect$company %||% ""),
-        paste("Title:", prospect$title %||% ""),
-        paste("Email:", prospect$email %||% ""),
-        paste("LinkedIn:", prospect$linkedin_url %||% ""),
-        paste("Website:", prospect$website %||% ""),
-        paste("City/State:", paste(prospect$city %||% "", prospect$state %||% "")),
-        paste("Source:", prospect$source %||% ""),
-        paste("Segment:", prospect$segment %||% ""),
-        paste("Status:", prospect$status %||% ""),
-        paste("Sequence Stage:", format_sequence_stage(prospect$sequence_stage)),
-        paste("Last Touch:", prospect$last_touch %||% ""),
-        paste("Next Touch:", prospect$next_touch %||% ""),
-        "",
-        "Reason for Outreach:",
-        prospect$reason_for_outreach %||% "",
-        "",
-        "Personalization Notes:",
-        prospect$personalization_notes %||% "",
-        "",
-        "Reply / Outcome Notes:",
-        prospect$reply_notes %||% "",
-        sep = "\n"
+
+      status_badge_ui(prospect$status)
+    })
+
+    output$selected_prospect_summary <- renderUI({
+      prospect <- selected_prospect()
+
+      if (is.null(prospect)) {
+        return(empty_state_ui("Select a prospect from the table."))
+      }
+
+      location <- trimws(paste(
+        display_value(prospect$city, ""),
+        display_value(prospect$state, "")
+      ))
+
+      tagList(
+        div(
+          class = "prospect-heading",
+          h4(format_person_name(prospect)),
+          div(
+            class = "muted-text",
+            paste(
+              display_value(prospect$title, "No title"),
+              display_value(prospect$company, "No company"),
+              sep = " at "
+            )
+          )
+        ),
+        div(
+          class = "detail-grid",
+          detail_item_ui("Email", prospect$email),
+          detail_item_ui("LinkedIn", prospect$linkedin_url),
+          detail_item_ui("Website", prospect$website),
+          detail_item_ui("Location", location),
+          detail_item_ui("Source", prospect$source),
+          detail_item_ui("Segment", prospect$segment),
+          detail_item_ui("Stage", format_sequence_stage(prospect$sequence_stage)),
+          detail_item_ui("Last Touch", prospect$last_touch),
+          detail_item_ui("Next Touch", prospect$next_touch)
+        ),
+        note_block_ui("Reason", prospect$reason_for_outreach),
+        note_block_ui("Personalization", prospect$personalization_notes),
+        note_block_ui("Research", prospect$research_notes),
+        note_block_ui("Reply / Outcome", prospect$reply_notes)
       )
     })
-    
+
     observeEvent(input$update_status, {
       prospect <- selected_prospect()
       req(prospect)
-      
+
       update_prospect(
         prospect_id = prospect$id,
         prospect = list(
@@ -400,21 +422,21 @@ mod_prospects_server <- function(id) {
           reply_notes = empty_to_na(input$reply_notes)
         )
       )
-      
+
       showNotification("Prospect updated.", type = "message")
-      
+
       selected_prospect(get_prospect_by_id(prospect$id))
       refresh_counter(refresh_counter() + 1)
     })
-    
+
     observeEvent(input$delete_prospect, {
       prospect <- selected_prospect()
       req(prospect)
-      
+
       delete_prospect(prospect$id)
-      
+
       showNotification("Prospect deleted.", type = "warning")
-      
+
       selected_prospect(NULL)
       updateTextAreaInput(session, "reply_notes", value = "")
       refresh_counter(refresh_counter() + 1)
@@ -427,40 +449,40 @@ mod_prospects_server <- function(id) {
 
 build_import_preview <- function(file_path, file_name, default_source = "", default_segment = "") {
   raw <- read_prospect_upload(file_path, file_name)
-  
+
   cleaned <- normalize_import_columns(raw)
-  
+
   cleaned <- apply_import_defaults(
     cleaned,
     default_source = default_source,
     default_segment = default_segment
   )
-  
+
   cleaned <- validate_import_rows(cleaned)
   cleaned <- flag_duplicate_prospects(cleaned)
-  
+
   cleaned
 }
 
 
 read_prospect_upload <- function(file_path, file_name) {
   extension <- tolower(tools::file_ext(file_name))
-  
+
   if (extension %in% c("xlsx", "xls")) {
     return(as.data.frame(readxl::read_excel(file_path), stringsAsFactors = FALSE))
   }
-  
+
   if (extension == "csv") {
     return(as.data.frame(readr::read_csv(file_path, show_col_types = FALSE), stringsAsFactors = FALSE))
   }
-  
+
   stop("Unsupported file type. Please upload .xlsx, .xls, or .csv.", call. = FALSE)
 }
 
 
 normalize_import_columns <- function(df) {
   df <- janitor::clean_names(df)
-  
+
   expected_cols <- c(
     "first_name",
     "last_name",
@@ -476,7 +498,7 @@ normalize_import_columns <- function(df) {
     "reason_for_outreach",
     "personalization_notes"
   )
-  
+
   # Common aliases from exports / hand-built lists
   alias_map <- list(
     first_name = c("first", "firstname", "contact_first_name"),
@@ -493,29 +515,29 @@ normalize_import_columns <- function(df) {
     reason_for_outreach = c("reason", "outreach_reason", "why_reach_out"),
     personalization_notes = c("notes", "personalization", "personalization_note")
   )
-  
+
   for (canonical in names(alias_map)) {
     if (!canonical %in% names(df)) {
       alias_found <- alias_map[[canonical]][alias_map[[canonical]] %in% names(df)]
-      
+
       if (length(alias_found) > 0) {
         names(df)[names(df) == alias_found[1]] <- canonical
       }
     }
   }
-  
+
   for (col in expected_cols) {
     if (!col %in% names(df)) {
       df[[col]] <- NA_character_
     }
   }
-  
+
   df <- df[, expected_cols, drop = FALSE]
-  
+
   for (col in expected_cols) {
     df[[col]] <- normalize_text_field(df[[col]])
   }
-  
+
   df
 }
 
@@ -524,15 +546,15 @@ apply_import_defaults <- function(df, default_source = "", default_segment = "")
   if (!is.null(default_source) && default_source != "") {
     df$source[is.na(df$source) | df$source == ""] <- default_source
   }
-  
+
   if (!is.null(default_segment) && default_segment != "") {
     df$segment[is.na(df$segment) | df$segment == ""] <- default_segment
   }
-  
+
   df$status <- DEFAULT_PROSPECT_STATUS
   df$sequence_stage <- DEFAULT_SEQUENCE_STAGE
   df$next_touch <- as.character(Sys.Date())
-  
+
   df
 }
 
@@ -542,31 +564,31 @@ validate_import_rows <- function(df) {
   has_name_company <- !is.na(df$first_name) & df$first_name != "" &
     !is.na(df$last_name) & df$last_name != "" &
     !is.na(df$company) & df$company != ""
-  
+
   df$is_valid <- has_email | has_name_company
-  
+
   df$validation_issue <- ifelse(
     df$is_valid,
     "",
     "Missing email or first_name + last_name + company"
   )
-  
+
   df$import_status <- ifelse(df$is_valid, "Ready", "Invalid")
-  
+
   df
 }
 
 
 flag_duplicate_prospects <- function(df) {
   existing <- get_prospects(include_inactive = TRUE)
-  
+
   df$is_duplicate <- FALSE
   df$duplicate_reason <- ""
-  
+
   if (nrow(df) == 0 || nrow(existing) == 0) {
     return(df)
   }
-  
+
   existing$email_norm <- normalize_match_value(existing$email)
   existing$linkedin_norm <- normalize_match_value(existing$linkedin_url)
   existing$name_company_norm <- build_name_company_key(
@@ -574,7 +596,7 @@ flag_duplicate_prospects <- function(df) {
     existing$last_name,
     existing$company
   )
-  
+
   df$email_norm <- normalize_match_value(df$email)
   df$linkedin_norm <- normalize_match_value(df$linkedin_url)
   df$name_company_norm <- build_name_company_key(
@@ -582,35 +604,35 @@ flag_duplicate_prospects <- function(df) {
     df$last_name,
     df$company
   )
-  
+
   for (i in seq_len(nrow(df))) {
     duplicate_reasons <- c()
-    
+
     if (!is.na(df$email_norm[i]) && df$email_norm[i] != "" &&
         df$email_norm[i] %in% existing$email_norm) {
       duplicate_reasons <- c(duplicate_reasons, "email match")
     }
-    
+
     if (!is.na(df$linkedin_norm[i]) && df$linkedin_norm[i] != "" &&
         df$linkedin_norm[i] %in% existing$linkedin_norm) {
       duplicate_reasons <- c(duplicate_reasons, "LinkedIn URL match")
     }
-    
+
     if (!is.na(df$name_company_norm[i]) && df$name_company_norm[i] != "" &&
         df$name_company_norm[i] %in% existing$name_company_norm) {
       duplicate_reasons <- c(duplicate_reasons, "name + company match")
     }
-    
+
     if (length(duplicate_reasons) > 0) {
       df$is_duplicate[i] <- TRUE
       df$duplicate_reason[i] <- paste(duplicate_reasons, collapse = "; ")
-      
+
       if (df$import_status[i] == "Ready") {
         df$import_status[i] <- "Duplicate"
       }
     }
   }
-  
+
   helper_cols <- c("email_norm", "linkedin_norm", "name_company_norm")
   df[, setdiff(names(df), helper_cols), drop = FALSE]
 }
@@ -633,9 +655,9 @@ build_name_company_key <- function(first_name, last_name, company) {
   first_name <- normalize_match_value(first_name)
   last_name <- normalize_match_value(last_name)
   company <- normalize_match_value(company)
-  
+
   key <- paste(first_name, last_name, company, sep = "|")
-  
+
   key[grepl("^\\|\\|?$", key)] <- ""
   key
 }

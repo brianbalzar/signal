@@ -2,7 +2,7 @@
 
 mod_queue_ui <- function(id) {
   ns <- NS(id)
-  
+
   tagList(
     tags$script(HTML("
       Shiny.addCustomMessageHandler('copy-draft-to-clipboard', function(message) {
@@ -24,180 +24,190 @@ mod_queue_ui <- function(id) {
         document.body.removeChild(textArea);
       });
     ")),
-    
-    fluidRow(
-      column(
-        width = 12,
-        
+
+    div(
+      class = "panel-card workbench-toolbar",
+      div(
+        class = "panel-title-row",
         div(
-          class = "panel-card",
-          h3("Today's Outreach Queue"),
-          p(
-            "Prospects due today or overdue. ",
-            "Prospects marked Replied, Not Interested, or Do Not Contact are excluded."
+          h3("Outreach Queue"),
+          p(class = "muted-text", "Due work, active prospects, and nurture follow-up.")
+        ),
+        actionButton(ns("refresh_queue"), "Refresh")
+      ),
+
+      uiOutput(ns("queue_counts")),
+
+      div(
+        class = "filter-grid",
+        selectInput(
+          ns("queue_scope"),
+          "Queue View",
+          choices = c(
+            "Due or Overdue",
+            "Overdue",
+            "Due Today",
+            "Nurture",
+            "All Active"
           ),
-          
-          uiOutput(ns("queue_counts")),
-          
-          fluidRow(
-            column(
-              width = 3,
-              selectInput(
-                ns("queue_scope"),
-                "Queue View",
-                choices = c(
-                  "Due or Overdue",
-                  "Overdue",
-                  "Due Today",
-                  "Nurture",
-                  "All Active"
-                ),
-                selected = "Due or Overdue"
-              )
-            ),
-            
-            column(
-              width = 3,
-              selectInput(
-                ns("queue_segment_filter"),
-                "Segment",
-                choices = c("All", setdiff(PROSPECT_SEGMENTS, "")),
-                selected = "All"
-              )
-            ),
-            
-            column(
-              width = 3,
-              selectInput(
-                ns("queue_source_filter"),
-                "Source",
-                choices = c("All", setdiff(PROSPECT_SOURCES, "")),
-                selected = "All"
-              )
-            )
-          ),
-          
-          actionButton(ns("refresh_queue"), "Refresh Queue"),
-          
-          br(),
-          br(),
-          
-          DTOutput(ns("queue_table"))
+          selected = "Due or Overdue"
+        ),
+
+        selectInput(
+          ns("queue_segment_filter"),
+          "Segment",
+          choices = c("All", setdiff(PROSPECT_SEGMENTS, "")),
+          selected = "All"
+        ),
+
+        selectInput(
+          ns("queue_source_filter"),
+          "Source",
+          choices = c("All", setdiff(PROSPECT_SOURCES, "")),
+          selected = "All"
         )
       )
     ),
-    
+
+    fluidRow(
+      column(
+        width = 7,
+
+        div(
+          class = "panel-card",
+          div(
+            class = "panel-title-row",
+            h3("Queue"),
+            span(class = "panel-kicker", "Select one row")
+          ),
+          DTOutput(ns("queue_table"))
+        )
+      ),
+
+      column(
+        width = 5,
+
+        div(
+          class = "panel-card selected-panel",
+          div(
+            class = "panel-title-row",
+            h3("Prospect"),
+            uiOutput(ns("selected_status_badge"))
+          ),
+          uiOutput(ns("selected_summary")),
+
+          div(
+            class = "button-row",
+            actionButton(
+              ns("research_prospect"),
+              "Research Prospect"
+            )
+          ),
+
+          uiOutput(ns("research_summary"))
+        )
+      )
+    ),
+
     fluidRow(
       column(
         width = 5,
-        
+
         div(
           class = "panel-card",
-          h3("Selected Prospect"),
-          p("Select a prospect from the queue to view context and generate a draft."),
-          verbatimTextOutput(ns("selected_summary")),
-          
-          actionButton(
-            ns("research_prospect"),
-            "Research Prospect"
+          h3("Next Step"),
+
+          uiOutput(ns("recommended_action")),
+
+          div(
+            class = "action-group",
+            h4("Draft"),
+            actionButton(
+              ns("generate_draft"),
+              "Generate Draft",
+              class = "btn-primary"
+            ),
+
+            actionButton(
+              ns("generate_local_draft"),
+              "Create Local Draft"
+            ),
+
+            actionButton(
+              ns("log_sent"),
+              "Log Email as Sent"
+            ),
+
+            actionButton(
+              ns("snooze"),
+              paste0("Snooze ", DEFAULT_QUEUE_SNOOZE_DAYS, " Days")
+            )
           ),
-          
-          verbatimTextOutput(ns("research_summary")),
-          
-          h4("Touch History"),
-          DTOutput(ns("touch_history_table")),
-          
-          h4("Draft History"),
-          DTOutput(ns("draft_history_table"))
+
+          div(
+            class = "action-group",
+            h4("Outcome"),
+            actionButton(
+              ns("mark_replied"),
+              "Mark Replied",
+              class = "btn-success"
+            ),
+
+            actionButton(
+              ns("mark_not_interested"),
+              "Not Interested",
+              class = "btn-warning"
+            ),
+
+            actionButton(
+              ns("mark_bounced"),
+              "Mark Bounced",
+              class = "btn-warning"
+            ),
+
+            actionButton(
+              ns("mark_dnc"),
+              "Do Not Contact",
+              class = "btn-danger"
+            )
+          )
         ),
-        
+
         div(
           class = "panel-card",
-          h3("Recommended Next Step"),
-          
-          verbatimTextOutput(ns("recommended_action")),
-          
-          actionButton(
-            ns("generate_draft"),
-            "Generate Draft",
-            class = "btn-primary"
-          ),
-          
-          actionButton(
-            ns("generate_local_draft"),
-            "Create Local Draft"
-          ),
-          
-          actionButton(
-            ns("log_sent"),
-            "Log Email as Sent"
-          ),
-          
-          actionButton(
-            ns("snooze"),
-            paste0("Snooze ", DEFAULT_QUEUE_SNOOZE_DAYS, " Days")
-          ),
-          
-          br(),
-          br(),
-          
-          h4("End Workflow"),
-          
-          p("Use these when the pre-reply outreach loop is complete."),
-          
-          actionButton(
-            ns("mark_replied"),
-            "Mark Replied",
-            class = "btn-success"
-          ),
-          
-          actionButton(
-            ns("mark_not_interested"),
-            "Not Interested",
-            class = "btn-warning"
-          ),
-          
-          actionButton(
-            ns("mark_bounced"),
-            "Mark Bounced",
-            class = "btn-warning"
-          ),
-          
-          actionButton(
-            ns("mark_dnc"),
-            "Do Not Contact",
-            class = "btn-danger"
+          h3("History"),
+          tabsetPanel(
+            type = "pills",
+            tabPanel("Touches", DTOutput(ns("touch_history_table"))),
+            tabPanel("Drafts", DTOutput(ns("draft_history_table")))
           )
         )
       ),
-      
+
       column(
         width = 7,
-        
+
         div(
           class = "panel-card",
           h3("Draft"),
-          
-          p("Generate a draft, review/edit it here, then copy it into Gmail or your email client."),
-          
           textInput(ns("draft_subject"), "Subject"),
-          
+
           textAreaInput(
             ns("draft_body"),
             "Body",
             rows = 16,
             placeholder = "Generated email draft will appear here."
           ),
-          
+
           actionButton(
             ns("copy_draft"),
             "Copy Draft"
           ),
-          
+
           uiOutput(ns("open_outlook_link")),
-          
+
           br(),
-          
+
           p(
             class = "helper-text",
             "Sending integration comes later. For now, this app tracks the workflow and saves the draft/touch history."
