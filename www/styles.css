@@ -1,0 +1,72 @@
+body {
+  background-color: #f7f7f8;
+}
+
+.app-header {
+  margin-bottom: 20px;
+  padding: 20px 0 10px 0;
+}
+
+.app-header h1 {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.app-header p {
+  color: #555;
+  font-size: 16px;
+}
+
+.panel-card {
+  background: white;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.app-alert {
+  background: #fff7e6;
+  border: 1px solid #f0c36a;
+  border-radius: 8px;
+  color: #5c3b00;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.app-alert p {
+  margin: 0;
+}
+
+.queue-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 4px 0;
+}
+
+.queue-count {
+  background: #f2f5f8;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.queue-count strong {
+  display: block;
+  font-size: 18px;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.btn {
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+.btn-primary {
+  margin-top: 8px;
+}

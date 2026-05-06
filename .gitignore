@@ -1,0 +1,13 @@
+_secrets.yml
+data/**/*.sqlite
+data/**/*.sqlite-shm
+data/**/*.sqlite-wal
+data/**/*.sqlite-journal
+data/backup_*/
+data/repair_original_*/
+data/exports/
+.signal_runtime/
+.Rhistory
+.RData
+.Rproj.user/
+*.xlsx
