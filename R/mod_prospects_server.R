@@ -534,7 +534,7 @@ read_prospect_upload <- function(file_path, file_name) {
   }
 
   if (extension == "csv") {
-    return(as.data.frame(readr::read_csv(file_path, show_col_types = FALSE), stringsAsFactors = FALSE))
+    return(read.csv(file_path, stringsAsFactors = FALSE, check.names = FALSE))
   }
 
   stop("Unsupported file type. Please upload .xlsx, .xls, or .csv.", call. = FALSE)

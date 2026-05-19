@@ -16,7 +16,6 @@ Imports:
     jsonlite,
     yaml,
     readxl,
-    readr,
     janitor
 Suggests:
     pkgload,
