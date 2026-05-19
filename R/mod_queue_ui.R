@@ -253,6 +253,7 @@ mod_queue_ui <- function(id) {
               "Call",
               div(
                 class = "call-card",
+                uiOutput(ns("call_contact_header")),
                 textAreaInput(
                   ns("call_prep_body"),
                   "Call Prep",

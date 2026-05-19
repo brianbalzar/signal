@@ -1,72 +1,65 @@
-# services/claude.R
-# Claude integration for Signal
+# R/claude.R
+# Claude integration for Signal.
 #
-# Claude should only be called when the user intentionally takes an action:
-# - Generate Draft
-# - Research Prospect
-# - Prep Call
+# Claude is only called when the user explicitly triggers an action:
+#   Generate Draft, Research Prospect, Prep Call.
 #
-# This file handles:
-# - reading local secrets
-# - building prospect-centered email prompts
-# - calling Anthropic's Messages API
-# - optionally using Claude web search for public research
-# - parsing subject/body output
-# - parsing research output
-# - cleaning placeholders/signatures
-# - falling back safely if Claude is unavailable
-#
-# Requires:
-# install.packages(c("yaml", "httr2", "jsonlite"))
+# Config priority: signal_server() params → options() → env vars → _secrets.yml
 
-# ---- Secrets ----------------------------------------------------------------
+# ---- Config ------------------------------------------------------------------
 
-read_secrets <- function(path = "_secrets.yml") {
-  if (!file.exists(path)) {
+get_claude_config <- function() {
+  # 1. Options set by signal_server()
+  api_key         <- getOption("signal.api_key", "")
+  model           <- getOption("signal.claude_model", "")
+  web_search_type <- getOption("signal.web_search_type", "")
+
+  # 2. Environment variable
+  if (is.null(api_key) || api_key == "") {
+    api_key <- Sys.getenv("ANTHROPIC_API_KEY", unset = "")
+  }
+
+  # 3. _secrets.yml backward compat (standalone dev mode)
+  if (is.null(api_key) || api_key == "") {
+    secrets <- tryCatch(yaml::read_yaml("_secrets.yml"), error = function(e) list())
+    if (is.null(api_key) || api_key == "") api_key <- secrets$claude$api_key %||% ""
+    if (is.null(model)   || model   == "") model   <- secrets$claude$model %||% ""
+    if (is.null(web_search_type) || web_search_type == "") {
+      web_search_type <- secrets$claude$web_search_type %||% ""
+    }
+  }
+
+  if (is.null(api_key) || api_key == "") {
     stop(
-      "Missing _secrets.yml. Create it from _secrets.example.yml and add your Anthropic API key.",
+      "No Claude API key configured. Pass api_key to signal_server() or set ANTHROPIC_API_KEY.",
       call. = FALSE
     )
   }
 
-  yaml::read_yaml(path)
-}
+  if (is.null(model) || model == "") model <- "claude-sonnet-4-6"
+  if (is.null(web_search_type) || web_search_type == "") web_search_type <- "web_search_20250305"
 
-get_claude_config <- function() {
-  secrets <- read_secrets()
-
-  if (is.null(secrets$claude$api_key) || secrets$claude$api_key == "") {
-    stop("Missing claude.api_key in _secrets.yml.", call. = FALSE)
-  }
-
-  model <- secrets$claude$model
-
-  if (is.null(model) || model == "") {
-    model <- "claude-sonnet-4-6"
-  }
-
-  web_search_type <- secrets$claude$web_search_type
-
-  if (is.null(web_search_type) || web_search_type == "") {
-    web_search_type <- "web_search_20260209"
-  }
-
-  list(
-    api_key = secrets$claude$api_key,
-    model = model,
-    web_search_type = web_search_type
-  )
+  list(api_key = api_key, model = model, web_search_type = web_search_type)
 }
 
 
 # ---- Prompt loading ---------------------------------------------------------
 
-load_prompt_template <- function(path = "prompts/intro_email.txt") {
-  if (!file.exists(path)) {
-    return(default_intro_prompt())
+load_prompt_template <- function() {
+  paths <- c(
+    system.file("prompts/intro_email.txt", package = "signal", mustWork = FALSE),
+    "inst/prompts/intro_email.txt",
+    "prompts/intro_email.txt"
+  )
+  paths <- paths[nchar(paths) > 0]
+
+  for (path in paths) {
+    if (file.exists(path)) {
+      return(paste(readLines(path, warn = FALSE), collapse = "\n"))
+    }
   }
 
-  paste(readLines(path, warn = FALSE), collapse = "\n")
+  default_intro_prompt()
 }
 
 default_intro_prompt <- function() {
@@ -401,12 +394,18 @@ call_claude_messages <- function(
     )
   }
 
-  response <- httr2::request("https://api.anthropic.com/v1/messages") |>
+  req <- httr2::request("https://api.anthropic.com/v1/messages") |>
     httr2::req_headers(
       "x-api-key" = config$api_key,
       "anthropic-version" = "2023-06-01",
       "content-type" = "application/json"
-    ) |>
+    )
+
+  if (isTRUE(use_web_search)) {
+    req <- httr2::req_headers(req, "anthropic-beta" = "web-search-2025-03-05")
+  }
+
+  response <- req |>
     httr2::req_body_json(body) |>
     httr2::req_perform()
 
@@ -570,9 +569,6 @@ format_research_notes <- function(research_result) {
     "Suggested Reason for Outreach:",
     research_result$suggested_reason_for_outreach %||% "",
     "",
-    "Suggested Personalization Notes:",
-    research_result$suggested_personalization_notes %||% "",
-    "",
     "Sources:",
     sources_text,
     sep = "\n"
@@ -718,6 +714,94 @@ research_prospect_with_claude_safe <- function(prospect) {
         error_message = conditionMessage(e)
       )
     }
+  )
+}
+
+build_org_personalization_prompt <- function(research_summary, prospects_df) {
+  n <- nrow(prospects_df)
+
+  prospect_lines <- vapply(seq_len(n), function(i) {
+    row <- prospects_df[i, ]
+    name <- trimws(paste(row$first_name %||% "", row$last_name %||% ""))
+    title <- row$title %||% ""
+    paste0(i, ". ", name, " (", title, ")")
+  }, character(1))
+
+  paste(
+    "You are writing brief personalization notes for an outbound sales sequence targeting facility and operations decision-makers.",
+    "",
+    "Organization research summary:",
+    research_summary,
+    "",
+    "Prospects at this organization:",
+    paste(prospect_lines, collapse = "\n"),
+    "",
+    "For each prospect, write a short personalization note (1-2 sentences) tailored to their role.",
+    "Draw only from the research above. Do not invent facts. Use soft language such as",
+    "'may be relevant,' 'I noticed,' or 'could be worth a conversation.'",
+    "",
+    "Return only valid JSON in exactly this format (one entry per prospect, in order):",
+    "{",
+    '  "personalizations": [',
+    '    { "notes": "personalization note for prospect 1" },',
+    '    { "notes": "personalization note for prospect 2" }',
+    "  ]",
+    "}",
+    "",
+    "Do not wrap the JSON in markdown.",
+    sep = "\n"
+  )
+}
+
+parse_org_personalization_response <- function(raw_text, prospect_ids) {
+  cleaned <- strip_json_code_fence(raw_text)
+  json_candidate <- extract_json_object(cleaned)
+
+  parsed <- tryCatch(
+    jsonlite::fromJSON(json_candidate),
+    error = function(e) NULL
+  )
+
+  if (is.null(parsed) || is.null(parsed$personalizations)) {
+    return(list())
+  }
+
+  personalizations <- parsed$personalizations
+  n <- min(length(prospect_ids), nrow(personalizations) %||% length(personalizations))
+
+  result <- list()
+  for (i in seq_len(n)) {
+    id <- prospect_ids[[i]]
+    notes <- if (is.data.frame(personalizations)) {
+      personalizations$notes[[i]] %||% ""
+    } else {
+      personalizations[[i]]$notes %||% ""
+    }
+    if (nchar(trimws(notes)) > 0) {
+      result[[as.character(id)]] <- trimws(notes)
+    }
+  }
+
+  result
+}
+
+generate_org_personalization <- function(research_summary, prospects_df) {
+  if (nrow(prospects_df) == 0 || trimws(research_summary %||% "") == "") {
+    return(list())
+  }
+
+  n <- nrow(prospects_df)
+  prompt <- build_org_personalization_prompt(research_summary, prospects_df)
+  max_tokens <- min(max(n * 200L, 800L), 2000L)
+
+  raw_response <- call_claude(prompt, max_tokens = max_tokens, temperature = 0.3)
+  parse_org_personalization_response(raw_response, prospects_df$id)
+}
+
+generate_org_personalization_safe <- function(research_summary, prospects_df) {
+  tryCatch(
+    generate_org_personalization(research_summary, prospects_df),
+    error = function(e) list()
   )
 }
 
@@ -987,19 +1071,3 @@ fallback_generate_call_prep_from_claude_service <- function(prospect, error_mess
 }
 
 
-# ---- Small infix helper -----------------------------------------------------
-# Keeps this file self-contained in case outreach_logic.R has not been sourced.
-
-`%||%` <- function(x, y) {
-  if (is.null(x) || length(x) == 0) {
-    return(y)
-  }
-
-  first_value <- x[1]
-
-  if (is.null(first_value) || is.na(first_value) || first_value == "") {
-    return(y)
-  }
-
-  x
-}

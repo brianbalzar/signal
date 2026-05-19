@@ -177,38 +177,25 @@ mod_prospects_server <- function(id) {
       valid <- preview[preview$import_status %in% c("Ready", "Duplicate"), ]
       duplicate_count <- sum(preview$import_status == "Duplicate", na.rm = TRUE)
       invalid_count <- sum(preview$import_status == "Invalid", na.rm = TRUE)
-      skipped_duplicate_count <- 0
-      imported_duplicate_count <- 0
 
-      importable <- valid
+      duplicate_mode <- input$duplicate_mode %||% "skip"
 
-      if (isTRUE(input$skip_duplicates)) {
-        importable <- importable[!importable$is_duplicate, ]
-        skipped_duplicate_count <- duplicate_count
-      } else {
-        imported_duplicate_count <- sum(importable$is_duplicate, na.rm = TRUE)
-      }
+      new_rows <- valid[!valid$is_duplicate, ]
+      duplicate_rows <- valid[valid$is_duplicate, ]
 
-      if (nrow(importable) == 0) {
-        latest_import_summary(paste0(
-          "0 added, ",
-          skipped_duplicate_count, " duplicates skipped, ",
-          imported_duplicate_count, " duplicates imported, ",
-          invalid_count, " invalid."
-        ))
-        showNotification(latest_import_summary(), type = "warning")
-        return()
-      }
+      added_count <- 0
+      updated_count <- 0
+      skipped_count <- 0
 
-      for (i in seq_len(nrow(importable))) {
-        row <- importable[i, ]
-
+      for (i in seq_len(nrow(new_rows))) {
+        row <- new_rows[i, ]
         create_prospect(list(
           first_name = empty_to_na(row$first_name),
           last_name = empty_to_na(row$last_name),
           company = empty_to_na(row$company),
           title = empty_to_na(row$title),
           email = empty_to_na(row$email),
+          phone = empty_to_na(row$phone),
           linkedin_url = empty_to_na(row$linkedin_url),
           website = empty_to_na(row$website),
           city = empty_to_na(row$city),
@@ -222,16 +209,62 @@ mod_prospects_server <- function(id) {
           next_touch = as.character(Sys.Date()),
           reply_notes = NA_character_
         ))
+        added_count <- added_count + 1
       }
 
-      latest_import_summary(
-        paste0(
-          nrow(importable), " added, ",
-          skipped_duplicate_count, " duplicates skipped, ",
-          imported_duplicate_count, " duplicates imported, ",
+      if (duplicate_mode == "update") {
+        for (i in seq_len(nrow(duplicate_rows))) {
+          row <- duplicate_rows[i, ]
+          if (!is.na(row$duplicate_id)) {
+            update_prospect_from_import(row$duplicate_id, row)
+            updated_count <- updated_count + 1
+          }
+        }
+      } else if (duplicate_mode == "import_new") {
+        for (i in seq_len(nrow(duplicate_rows))) {
+          row <- duplicate_rows[i, ]
+          create_prospect(list(
+            first_name = empty_to_na(row$first_name),
+            last_name = empty_to_na(row$last_name),
+            company = empty_to_na(row$company),
+            title = empty_to_na(row$title),
+            email = empty_to_na(row$email),
+            phone = empty_to_na(row$phone),
+            linkedin_url = empty_to_na(row$linkedin_url),
+            website = empty_to_na(row$website),
+            city = empty_to_na(row$city),
+            state = empty_to_na(row$state),
+            source = empty_to_na(row$source),
+            segment = empty_to_na(row$segment),
+            reason_for_outreach = empty_to_na(row$reason_for_outreach),
+            personalization_notes = empty_to_na(row$personalization_notes),
+            status = DEFAULT_PROSPECT_STATUS,
+            sequence_stage = DEFAULT_SEQUENCE_STAGE,
+            next_touch = as.character(Sys.Date()),
+            reply_notes = NA_character_
+          ))
+          added_count <- added_count + 1
+        }
+      } else {
+        skipped_count <- nrow(duplicate_rows)
+      }
+
+      if (added_count == 0 && updated_count == 0) {
+        latest_import_summary(paste0(
+          "0 added, 0 updated, ",
+          skipped_count, " duplicates skipped, ",
           invalid_count, " invalid."
-        )
-      )
+        ))
+        showNotification(latest_import_summary(), type = "warning")
+        return()
+      }
+
+      latest_import_summary(paste0(
+        added_count, " added, ",
+        updated_count, " updated, ",
+        skipped_count, " duplicates skipped, ",
+        invalid_count, " invalid."
+      ))
 
       showNotification(latest_import_summary(), type = "message")
 
@@ -517,6 +550,7 @@ normalize_import_columns <- function(df) {
     "company",
     "title",
     "email",
+    "phone",
     "linkedin_url",
     "website",
     "city",
@@ -534,6 +568,7 @@ normalize_import_columns <- function(df) {
     company = c("account", "account_name", "organization", "company_name"),
     title = c("job_title", "position"),
     email = c("email_address", "work_email"),
+    phone = c("phone_number", "mobile", "cell", "direct_phone", "direct", "office_phone"),
     linkedin_url = c("linkedin", "linkedin_profile", "profile_url"),
     website = c("company_website", "url"),
     city = c("company_city"),
@@ -612,6 +647,7 @@ flag_duplicate_prospects <- function(df) {
 
   df$is_duplicate <- FALSE
   df$duplicate_reason <- ""
+  df$duplicate_id <- NA_integer_
 
   if (nrow(df) == 0 || nrow(existing) == 0) {
     return(df)
@@ -635,25 +671,36 @@ flag_duplicate_prospects <- function(df) {
 
   for (i in seq_len(nrow(df))) {
     duplicate_reasons <- c()
+    matched_id <- NA_integer_
 
     if (!is.na(df$email_norm[i]) && df$email_norm[i] != "" &&
         df$email_norm[i] %in% existing$email_norm) {
       duplicate_reasons <- c(duplicate_reasons, "email match")
+      if (is.na(matched_id)) {
+        matched_id <- existing$id[existing$email_norm == df$email_norm[i]][1]
+      }
     }
 
     if (!is.na(df$linkedin_norm[i]) && df$linkedin_norm[i] != "" &&
         df$linkedin_norm[i] %in% existing$linkedin_norm) {
       duplicate_reasons <- c(duplicate_reasons, "LinkedIn URL match")
+      if (is.na(matched_id)) {
+        matched_id <- existing$id[existing$linkedin_norm == df$linkedin_norm[i]][1]
+      }
     }
 
     if (!is.na(df$name_company_norm[i]) && df$name_company_norm[i] != "" &&
         df$name_company_norm[i] %in% existing$name_company_norm) {
       duplicate_reasons <- c(duplicate_reasons, "name + company match")
+      if (is.na(matched_id)) {
+        matched_id <- existing$id[existing$name_company_norm == df$name_company_norm[i]][1]
+      }
     }
 
     if (length(duplicate_reasons) > 0) {
       df$is_duplicate[i] <- TRUE
       df$duplicate_reason[i] <- paste(duplicate_reasons, collapse = "; ")
+      df$duplicate_id[i] <- matched_id
 
       if (df$import_status[i] == "Ready") {
         df$import_status[i] <- "Duplicate"

@@ -61,10 +61,16 @@ mod_prospects_ui <- function(id) {
             )
           ),
 
-          checkboxInput(
-            ns("skip_duplicates"),
-            "Skip likely duplicates",
-            value = TRUE
+          radioButtons(
+            ns("duplicate_mode"),
+            "When a match is found:",
+            choices = c(
+              "Skip duplicate" = "skip",
+              "Update existing record" = "update",
+              "Import as new record" = "import_new"
+            ),
+            selected = "skip",
+            inline = TRUE
           ),
 
           actionButton(
@@ -84,6 +90,7 @@ mod_prospects_ui <- function(id) {
               tags$li("company"),
               tags$li("title"),
               tags$li("email"),
+              tags$li("phone"),
               tags$li("linkedin_url"),
               tags$li("website"),
               tags$li("city"),

@@ -1,6 +1,6 @@
 # modules/mod_queue_server.R
 
-mod_queue_server <- function(id) {
+mod_queue_server <- function(id, ae_filter = NULL, user_role = "admin") {
   moduleServer(id, function(input, output, session) {
 
     refresh_counter <- reactiveVal(0)
@@ -24,9 +24,9 @@ mod_queue_server <- function(id) {
       }
 
       prospects <- if (scope %in% c("All Active", "Nurture")) {
-        get_active_prospects()
+        get_active_prospects(ae_filter = ae_filter)
       } else {
-        get_outreach_queue()
+        get_outreach_queue(ae_filter = ae_filter)
       }
 
       if (nrow(prospects) == 0) {
@@ -374,6 +374,28 @@ mod_queue_server <- function(id) {
           paste0("Snooze ", DEFAULT_QUEUE_SNOOZE_DAYS, " Days"),
           enabled = has_selection
         )
+      )
+    })
+
+    output$call_contact_header <- renderUI({
+      prospect <- selected_prospect()
+      if (is.null(prospect)) return(NULL)
+
+      name <- trimws(paste(prospect$first_name %||% "", prospect$last_name %||% ""))
+      phone <- prospect$phone %||% ""
+
+      div(
+        class = "call-contact-header",
+        span(class = "call-contact-name", if (name != "") name else "Unknown"),
+        if (trimws(phone) != "") {
+          tags$a(
+            class = "call-contact-phone",
+            href = paste0("tel:", gsub("[^0-9+]", "", phone)),
+            phone
+          )
+        } else {
+          span(class = "call-contact-no-phone", "No phone on file")
+        }
       )
     })
 
@@ -741,6 +763,29 @@ mod_queue_server <- function(id) {
           researched_at = researched_at
         )
         affected <- 1
+      }
+
+      session$sendCustomMessage(
+        "research-progress-state",
+        list(active = TRUE, stage = "Writing personalization notes...")
+      )
+
+      org_prospects <- get_prospects_by_company(prospect$company)
+      if (!is.null(org_prospects) && nrow(org_prospects) > 0) {
+        personalizations <- generate_org_personalization_safe(
+          research_summary = research_notes,
+          prospects_df = org_prospects
+        )
+        for (pid in names(personalizations)) {
+          current <- org_prospects$personalization_notes[org_prospects$id == as.integer(pid)]
+          current <- if (length(current) == 0) "" else current[[1]] %||% ""
+          if (trimws(current) == "") {
+            update_prospect_personalization_notes(
+              prospect_id = as.integer(pid),
+              personalization_notes = personalizations[[pid]]
+            )
+          }
+        }
       }
 
       refreshed <- get_prospect_by_id(prospect$id)
@@ -1113,6 +1158,7 @@ mod_queue_server <- function(id) {
           company = empty_to_na(input$modal_company),
           title = empty_to_na(input$modal_title),
           email = empty_to_na(input$modal_email),
+          phone = empty_to_na(input$modal_phone),
           linkedin_url = empty_to_na(input$modal_linkedin_url),
           website = empty_to_na(input$modal_website),
           city = empty_to_na(input$modal_city),
@@ -1411,6 +1457,7 @@ show_prospect_modal <- function(ns, prospect) {
                   column(6, textInput(ns("modal_last_name"), "Last Name", value = display_value(prospect$last_name, "")))
                 ),
                 textInput(ns("modal_email"), "Email", value = display_value(prospect$email, "")),
+                textInput(ns("modal_phone"), "Phone", value = display_value(prospect$phone, "")),
                 textInput(ns("modal_linkedin_url"), "LinkedIn URL", value = display_value(prospect$linkedin_url, ""))
               )
             ),
@@ -1474,6 +1521,11 @@ show_prospect_modal <- function(ns, prospect) {
         ),
         tabPanel(
           "Workflow",
+          sequence_progress_ui(
+            prospect$sequence_stage,
+            last_touch = prospect$last_touch,
+            next_touch = prospect$next_touch
+          ),
           fluidRow(
             column(
               6,

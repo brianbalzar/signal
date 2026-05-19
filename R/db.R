@@ -1,15 +1,6 @@
-# services/db.R
-# Database layer for Signal
-#
-# Signal is intentionally NOT a full CRM.
-# It is a lightweight outbound workbench for getting a first reply.
-#
-# Workflow:
-#   Prospect added -> email/follow-up sequence -> Replied / Not Interested / Do Not Contact
-#   Once a prospect replies, they leave the active outreach queue.
-#
-# This file should only handle database work.
-# Cadence/status logic belongs in services/outreach_logic.R.
+# R/db.R
+# Database layer for Signal. All DB work lives here.
+# Cadence/status logic belongs in outreach_logic.R.
 
 # ---- Connection -------------------------------------------------------------
 
@@ -161,10 +152,15 @@ init_db <- function() {
       status TEXT DEFAULT 'Not Started',
       sequence_stage INTEGER DEFAULT 0,
 
+      assigned_to TEXT,
+
       last_touch TEXT,
       next_touch TEXT,
 
       reply_notes TEXT,
+
+      customer_since TEXT,
+      customer_notes TEXT,
 
       created_at TEXT,
       updated_at TEXT
@@ -227,6 +223,16 @@ apply_schema_migrations <- function(con) {
     add_column_if_missing(con, "prospects", "research_notes", "TEXT")
     add_column_if_missing(con, "prospects", "research_sources", "TEXT")
     add_column_if_missing(con, "prospects", "researched_at", "TEXT")
+  })
+  run_schema_migration(con, "003_add_phone", function() {
+    add_column_if_missing(con, "prospects", "phone", "TEXT")
+  })
+  run_schema_migration(con, "004_add_lifecycle_fields", function() {
+    add_column_if_missing(con, "prospects", "assigned_to",     "TEXT")
+    add_column_if_missing(con, "prospects", "customer_since",  "TEXT")
+    add_column_if_missing(con, "prospects", "customer_notes",  "TEXT")
+    # Convert legacy "Replied" status to the new "In Conversation" phase.
+    dbExecute(con, "UPDATE prospects SET status = 'In Conversation' WHERE status = 'Replied'")
   })
 
   invisible(TRUE)
@@ -326,6 +332,11 @@ create_indexes <- function(con) {
     CREATE INDEX IF NOT EXISTS idx_drafts_prospect_id
     ON drafts(prospect_id)
   ")
+
+  dbExecute(con, "
+    CREATE INDEX IF NOT EXISTS idx_prospects_assigned_to
+    ON prospects(assigned_to)
+  ")
 }
 
 
@@ -347,6 +358,8 @@ create_prospect <- function(prospect) {
     next_touch <- as.character(next_touch)
   }
 
+  assigned_to <- prospect$assigned_to %||% getOption("signal.user_id", NA_character_)
+
   dbExecute(
     con,
     "
@@ -356,6 +369,7 @@ create_prospect <- function(prospect) {
       company,
       title,
       email,
+      phone,
       linkedin_url,
       website,
       city,
@@ -369,12 +383,13 @@ create_prospect <- function(prospect) {
       researched_at,
       status,
       sequence_stage,
+      assigned_to,
       last_touch,
       next_touch,
       reply_notes,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ",
     params = list(
       prospect$first_name %||% NA_character_,
@@ -382,6 +397,7 @@ create_prospect <- function(prospect) {
       prospect$company %||% NA_character_,
       prospect$title %||% NA_character_,
       prospect$email %||% NA_character_,
+      prospect$phone %||% NA_character_,
       prospect$linkedin_url %||% NA_character_,
       prospect$website %||% NA_character_,
       prospect$city %||% NA_character_,
@@ -395,6 +411,7 @@ create_prospect <- function(prospect) {
       prospect$researched_at %||% NA_character_,
       status,
       sequence_stage,
+      assigned_to,
       NA_character_,
       next_touch,
       prospect$reply_notes %||% NA_character_,
@@ -407,17 +424,23 @@ create_prospect <- function(prospect) {
 }
 
 
-get_prospects <- function(include_inactive = TRUE) {
+get_prospects <- function(include_inactive = TRUE, ae_filter = NULL) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
 
-  where_clause <- ""
-
+  conditions <- character(0)
   if (!include_inactive) {
-    where_clause <- "
-      WHERE status NOT IN ('Replied', 'Not Interested', 'Do Not Contact')
-    "
+    conditions <- c(conditions, "status NOT IN ('Replied', 'Not Interested', 'Do Not Contact')")
   }
+  if (!is.null(ae_filter)) {
+    conditions <- c(conditions, "coalesce(assigned_to, '') = ?")
+  }
+  where_clause <- if (length(conditions) > 0) {
+    paste("WHERE", paste(conditions, collapse = " AND "))
+  } else {
+    ""
+  }
+  params <- if (!is.null(ae_filter)) list(ae_filter) else list()
 
   dbGetQuery(
     con,
@@ -466,13 +489,14 @@ get_prospects <- function(include_inactive = TRUE) {
         company ASC,
         last_name ASC
       "
-    )
+    ),
+    params = params
   )
 }
 
 
-get_active_prospects <- function() {
-  get_prospects(include_inactive = FALSE)
+get_active_prospects <- function(ae_filter = NULL) {
+  get_prospects(include_inactive = FALSE, ae_filter = ae_filter)
 }
 
 
@@ -526,6 +550,7 @@ update_prospect <- function(prospect_id, prospect) {
       company = ?,
       title = ?,
       email = ?,
+      phone = ?,
       linkedin_url = ?,
       website = ?,
       city = ?,
@@ -550,6 +575,7 @@ update_prospect <- function(prospect_id, prospect) {
       prospect$company %||% NA_character_,
       prospect$title %||% NA_character_,
       prospect$email %||% NA_character_,
+      prospect$phone %||% NA_character_,
       prospect$linkedin_url %||% NA_character_,
       prospect$website %||% NA_character_,
       prospect$city %||% NA_character_,
@@ -638,47 +664,192 @@ delete_prospect <- function(prospect_id) {
 
 # ---- Outreach queue ---------------------------------------------------------
 
-get_outreach_queue <- function() {
+get_outreach_queue <- function(ae_filter = NULL) {
   con <- get_db()
   on.exit(dbDisconnect(con), add = TRUE)
 
-  today <- as.character(Sys.Date())
+  today   <- as.character(Sys.Date())
+  ae_sql  <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
+  params  <- if (!is.null(ae_filter)) list(today, ae_filter) else list(today)
 
   dbGetQuery(
     con,
-    "
-    SELECT
-      id,
-      trim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) AS name,
-      company,
-      title,
-      email,
-      source,
-      segment,
-      reason_for_outreach,
-      status,
-      sequence_stage,
-      last_touch,
-      next_touch
-    FROM prospects
-    WHERE
-      status NOT IN ('Replied', 'Not Interested', 'Do Not Contact')
-      AND (
-        next_touch IS NULL
-        OR next_touch = ''
-        OR next_touch <= ?
-      )
-    ORDER BY
-      CASE
-        WHEN next_touch IS NULL OR next_touch = '' THEN 1
-        ELSE 0
-      END,
-      next_touch ASC,
-      company ASC,
-      last_name ASC
-    ",
-    params = list(today)
+    paste0(
+      "
+      SELECT
+        id,
+        trim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) AS name,
+        company,
+        title,
+        email,
+        source,
+        segment,
+        assigned_to,
+        reason_for_outreach,
+        status,
+        sequence_stage,
+        last_touch,
+        next_touch
+      FROM prospects
+      WHERE
+        status NOT IN ('In Conversation', 'Customer', 'Replied', 'Not Interested', 'Do Not Contact')
+        AND (
+          next_touch IS NULL
+          OR next_touch = ''
+          OR next_touch <= ?
+        )
+        ", ae_sql, "
+      ORDER BY
+        CASE
+          WHEN next_touch IS NULL OR next_touch = '' THEN 1
+          ELSE 0
+        END,
+        next_touch ASC,
+        company ASC,
+        last_name ASC
+      "
+    ),
+    params = params
   )
+}
+
+
+get_conversation_queue <- function(ae_filter = NULL) {
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  today  <- as.character(Sys.Date())
+  ae_sql <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
+  params <- if (!is.null(ae_filter)) list(today, ae_filter) else list(today)
+
+  dbGetQuery(
+    con,
+    paste0(
+      "
+      SELECT
+        id,
+        trim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) AS name,
+        company,
+        title,
+        email,
+        source,
+        segment,
+        assigned_to,
+        reason_for_outreach,
+        status,
+        sequence_stage,
+        last_touch,
+        next_touch
+      FROM prospects
+      WHERE
+        status = 'In Conversation'
+        AND (
+          next_touch IS NULL
+          OR next_touch = ''
+          OR next_touch <= ?
+        )
+        ", ae_sql, "
+      ORDER BY
+        CASE
+          WHEN next_touch IS NULL OR next_touch = '' THEN 1
+          ELSE 0
+        END,
+        next_touch ASC,
+        company ASC,
+        last_name ASC
+      "
+    ),
+    params = params
+  )
+}
+
+
+get_customer_queue <- function(ae_filter = NULL) {
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  today  <- as.character(Sys.Date())
+  ae_sql <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
+  params <- if (!is.null(ae_filter)) list(today, ae_filter) else list(today)
+
+  dbGetQuery(
+    con,
+    paste0(
+      "
+      SELECT
+        id,
+        trim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) AS name,
+        company,
+        title,
+        email,
+        source,
+        segment,
+        assigned_to,
+        status,
+        customer_since,
+        customer_notes,
+        last_touch,
+        next_touch
+      FROM prospects
+      WHERE
+        status = 'Customer'
+        AND (
+          next_touch IS NULL
+          OR next_touch = ''
+          OR next_touch <= ?
+        )
+        ", ae_sql, "
+      ORDER BY
+        CASE
+          WHEN next_touch IS NULL OR next_touch = '' THEN 1
+          ELSE 0
+        END,
+        next_touch ASC,
+        company ASC,
+        last_name ASC
+      "
+    ),
+    params = params
+  )
+}
+
+
+mark_as_customer <- function(
+    prospect_id,
+    notes           = NULL,
+    next_touch_days = NULL,
+    next_touch_date = NULL
+) {
+  next_touch <- resolve_customer_next_touch(
+    next_touch_date = next_touch_date,
+    next_touch_days = next_touch_days
+  )
+
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  dbExecute(
+    con,
+    "
+    UPDATE prospects
+    SET
+      status         = 'Customer',
+      customer_since = ?,
+      customer_notes = ?,
+      next_touch     = ?,
+      updated_at     = ?
+    WHERE id = ?
+    ",
+    params = list(
+      as.character(Sys.Date()),
+      notes %||% NA_character_,
+      next_touch,
+      as.character(Sys.time()),
+      prospect_id
+    )
+  )
+
+  invisible(TRUE)
 }
 
 
@@ -1125,6 +1296,107 @@ update_prospect_research <- function(
   invisible(TRUE)
 }
 
+update_prospect_from_import <- function(prospect_id, row) {
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  dbExecute(
+    con,
+    "
+    UPDATE prospects
+    SET
+      first_name            = COALESCE(NULLIF(?, ''), first_name),
+      last_name             = COALESCE(NULLIF(?, ''), last_name),
+      company               = COALESCE(NULLIF(?, ''), company),
+      title                 = COALESCE(NULLIF(?, ''), title),
+      email                 = COALESCE(NULLIF(?, ''), email),
+      phone                 = COALESCE(NULLIF(?, ''), phone),
+      linkedin_url          = COALESCE(NULLIF(?, ''), linkedin_url),
+      website               = COALESCE(NULLIF(?, ''), website),
+      city                  = COALESCE(NULLIF(?, ''), city),
+      state                 = COALESCE(NULLIF(?, ''), state),
+      source                = COALESCE(NULLIF(?, ''), source),
+      segment               = COALESCE(NULLIF(?, ''), segment),
+      reason_for_outreach   = COALESCE(NULLIF(?, ''), reason_for_outreach),
+      personalization_notes = COALESCE(NULLIF(?, ''), personalization_notes),
+      updated_at            = ?
+    WHERE id = ?
+    ",
+    params = list(
+      row$first_name %||% NA_character_,
+      row$last_name %||% NA_character_,
+      row$company %||% NA_character_,
+      row$title %||% NA_character_,
+      row$email %||% NA_character_,
+      row$phone %||% NA_character_,
+      row$linkedin_url %||% NA_character_,
+      row$website %||% NA_character_,
+      row$city %||% NA_character_,
+      row$state %||% NA_character_,
+      row$source %||% NA_character_,
+      row$segment %||% NA_character_,
+      row$reason_for_outreach %||% NA_character_,
+      row$personalization_notes %||% NA_character_,
+      as.character(Sys.time()),
+      prospect_id
+    )
+  )
+
+  invisible(TRUE)
+}
+
+update_prospect_personalization_notes <- function(prospect_id, personalization_notes) {
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  dbExecute(
+    con,
+    "
+    UPDATE prospects
+    SET
+      personalization_notes = ?,
+      updated_at = ?
+    WHERE id = ?
+    ",
+    params = list(
+      personalization_notes %||% NA_character_,
+      as.character(Sys.time()),
+      prospect_id
+    )
+  )
+
+  invisible(TRUE)
+}
+
+get_prospects_by_company <- function(company) {
+  company <- normalize_company_match_value(company)
+
+  if (is.na(company)) {
+    return(data.frame())
+  }
+
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  dbGetQuery(
+    con,
+    "
+    SELECT
+      id,
+      first_name,
+      last_name,
+      title,
+      personalization_notes
+    FROM prospects
+    WHERE
+      lower(trim(coalesce(company, ''))) = lower(trim(?))
+      AND coalesce(status, '') <> 'Do Not Contact'
+    ORDER BY last_name, first_name
+    ",
+    params = list(company)
+  )
+}
+
 get_company_research <- function(company) {
   company <- normalize_company_match_value(company)
 
@@ -1217,6 +1489,98 @@ normalize_company_match_value <- function(company) {
   }
 
   company
+}
+
+
+# ---- Store helpers (consumed by signal_server() reactives) ------------------
+
+get_touches_for_all_prospects <- function(ae_filter = NULL) {
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  ae_sql <- if (!is.null(ae_filter)) {
+    "JOIN prospects p ON t.prospect_id = p.id WHERE coalesce(p.assigned_to, '') = ?"
+  } else {
+    "JOIN prospects p ON t.prospect_id = p.id"
+  }
+  params <- if (!is.null(ae_filter)) list(ae_filter) else list()
+
+  dbGetQuery(
+    con,
+    paste0(
+      "
+      SELECT
+        t.id,
+        t.prospect_id,
+        p.assigned_to,
+        p.company,
+        t.touch_type,
+        t.outcome,
+        t.sequence_stage,
+        t.created_at
+      FROM touches t
+      ", ae_sql, "
+      ORDER BY t.created_at DESC
+      "
+    ),
+    params = params
+  )
+}
+
+get_prospects_by_status <- function(status, ae_filter = NULL) {
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  ae_sql <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
+  params <- if (!is.null(ae_filter)) list(status, ae_filter) else list(status)
+
+  dbGetQuery(
+    con,
+    paste0(
+      "
+      SELECT
+        id,
+        trim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) AS name,
+        company,
+        assigned_to,
+        status,
+        customer_since,
+        customer_notes,
+        created_at,
+        updated_at
+      FROM prospects
+      WHERE status = ?
+      ", ae_sql, "
+      ORDER BY customer_since DESC, company ASC
+      "
+    ),
+    params = params
+  )
+}
+
+get_pipeline_summary_by_ae <- function(ae_filter = NULL) {
+  con <- get_db()
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  ae_sql <- if (!is.null(ae_filter)) "WHERE coalesce(assigned_to, '') = ?" else ""
+  params <- if (!is.null(ae_filter)) list(ae_filter) else list()
+
+  dbGetQuery(
+    con,
+    paste0(
+      "
+      SELECT
+        coalesce(assigned_to, 'Unassigned') AS ae,
+        status,
+        count(*) AS n
+      FROM prospects
+      ", ae_sql, "
+      GROUP BY assigned_to, status
+      ORDER BY ae, status
+      "
+    ),
+    params = params
+  )
 }
 
 

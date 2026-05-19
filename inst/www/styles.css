@@ -607,6 +607,151 @@ table.dataTable tbody tr.selected td:first-child {
   padding-right: 8px;
 }
 
+/* ---- Call contact header ------------------------------------------------- */
+.call-contact-header {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.call-contact-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.call-contact-phone {
+  font-size: 15px;
+  color: #1a56db;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.call-contact-no-phone {
+  font-size: 13px;
+  color: #aab;
+  font-style: italic;
+}
+
+/* ---- Sequence stepper ---------------------------------------------------- */
+.sequence-progress-wrap {
+  background: #e9ecef;
+  border-radius: 4px;
+  height: 6px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.sequence-progress-fill {
+  background: linear-gradient(90deg, #1e5c23, #43a047);
+  border-radius: 4px;
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.sequence-stepper {
+  display: flex;
+  align-items: flex-start;
+  margin: 0 0 8px 0;
+}
+
+.sequence-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.sequence-step:not(:last-child)::after {
+  background: #d0d5dd;
+  content: '';
+  height: 2px;
+  left: calc(50% + 22px);
+  position: absolute;
+  right: calc(-50% + 22px);
+  top: 19px;
+  z-index: 0;
+}
+
+.sequence-step.done:not(:last-child)::after {
+  background: #2e7d32;
+}
+
+.sequence-step-dot {
+  align-items: center;
+  background: #fff;
+  border: 2px solid #d0d5dd;
+  border-radius: 50%;
+  color: #bcc;
+  display: flex;
+  font-size: 15px;
+  height: 40px;
+  justify-content: center;
+  position: relative;
+  width: 40px;
+  z-index: 1;
+}
+
+.sequence-step.done .sequence-step-dot {
+  background: #2e7d32;
+  border-color: #2e7d32;
+  color: #fff;
+}
+
+.sequence-step.current .sequence-step-dot {
+  background: #1a56db;
+  border-color: #1a56db;
+  color: #fff;
+  box-shadow: 0 0 0 4px #c7d7f8;
+}
+
+.sequence-step-label {
+  color: #6c757d;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 7px;
+  text-align: center;
+}
+
+.sequence-step.done .sequence-step-label {
+  color: #2e7d32;
+}
+
+.sequence-step.current .sequence-step-label {
+  color: #1a56db;
+}
+
+.sequence-step-status {
+  color: #bcc;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.sequence-step.done .sequence-step-status {
+  color: #81c784;
+}
+
+.sequence-step.current .sequence-step-status {
+  color: #90aee8;
+  font-weight: 700;
+}
+
+.sequence-step-date {
+  color: #888;
+  font-size: 10px;
+  margin-top: 3px;
+  text-align: center;
+}
+
 @media (max-width: 768px) {
   .panel-title-row {
     align-items: stretch;

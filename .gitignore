@@ -11,3 +11,4 @@ data/exports/
 .RData
 .Rproj.user/
 *.xlsx
+.positai

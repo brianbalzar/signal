@@ -1,0 +1,27 @@
+Package: signal
+Title: Outbound Outreach Workbench
+Version: 0.1.0
+Authors@R: person("Brian", "Balzar", email = "brian.balzar@upchurchus.com", role = c("aut", "cre"))
+Description: Lightweight outbound workbench for managing prospect sequences,
+    generating personalized emails via Claude, and tracking follow-up cadence.
+    Designed to be embedded as a tab in a host Shiny app or run standalone.
+Depends:
+    R (>= 4.0.0),
+    shiny,
+    DBI,
+    RSQLite,
+    DT
+Imports:
+    httr2,
+    jsonlite,
+    yaml,
+    readxl,
+    readr,
+    janitor
+Suggests:
+    pkgload,
+    devtools,
+    testthat (>= 3.0.0)
+License: proprietary
+Encoding: UTF-8
+RoxygenNote: 7.0.0

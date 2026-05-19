@@ -348,3 +348,60 @@ normalize_research_values <- function(values) {
 
   unique(values)
 }
+
+
+sequence_progress_ui <- function(sequence_stage, last_touch = NULL, next_touch = NULL) {
+  stage <- suppressWarnings(as.integer(sequence_stage))
+  if (is.na(stage)) stage <- 0L
+
+  steps <- list(
+    list(label = "Intro Email",   stage_num = 0L, icon = "fa-envelope"),
+    list(label = "Follow-Up 1",   stage_num = 1L, icon = "fa-reply"),
+    list(label = "Follow-Up 2",   stage_num = 2L, icon = "fa-reply-all"),
+    list(label = "Breakup Email", stage_num = 3L, icon = "fa-flag"),
+    list(label = "Nurture",       stage_num = 4L, icon = "fa-leaf")
+  )
+
+  pct <- min(100L, as.integer(round(stage / 4 * 100)))
+
+  progress_bar <- tags$div(
+    class = "sequence-progress-wrap",
+    tags$div(class = "sequence-progress-fill", style = paste0("width:", pct, "%"))
+  )
+
+  fmt_date <- function(d) {
+    d <- display_value(d, "")
+    if (d == "") return(NULL)
+    tags$div(class = "sequence-step-date", d)
+  }
+
+  step_divs <- lapply(steps, function(s) {
+    is_done    <- stage > s$stage_num
+    is_current <- if (s$stage_num == 4L) stage >= 4L else stage == s$stage_num
+
+    css         <- paste("sequence-step", if (is_done) "done" else if (is_current) "current" else "upcoming")
+    icon_class  <- if (is_done) "fa fa-check" else paste("fa", s$icon)
+    status_text <- if (is_done) "Done" else if (is_current) "In Progress" else "Upcoming"
+
+    date_tag <- if (is_current) {
+      fmt_date(next_touch)
+    } else if (is_done && s$stage_num == stage - 1L) {
+      fmt_date(last_touch)
+    } else {
+      NULL
+    }
+
+    tags$div(
+      class = css,
+      tags$div(class = "sequence-step-dot", tags$i(class = icon_class)),
+      tags$div(class = "sequence-step-label", s$label),
+      tags$div(class = "sequence-step-status", status_text),
+      date_tag
+    )
+  })
+
+  tagList(
+    progress_bar,
+    tags$div(class = "sequence-stepper", step_divs)
+  )
+}

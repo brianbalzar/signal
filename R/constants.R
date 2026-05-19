@@ -1,15 +1,16 @@
-# utils/constants.R
-# Shared constants for Signal
-#
-# Signal is a lightweight outbound workbench.
-# These constants define the allowed statuses, prospect segments,
-# lead sources, touch types, and sequence labels used across the app.
+# R/constants.R
+# Shared constants for Signal.
 
 # ---- Prospect statuses ------------------------------------------------------
-# Terminal statuses should be excluded from the active outreach queue:
-# - Replied
-# - Not Interested
-# - Do Not Contact
+#
+# Lifecycle phases:
+#   Prospecting: Not Started → Nurture  (email sequence, auto-cadence)
+#   Conversation: In Conversation        (replied; now in active dialogue)
+#   Customer:     Customer               (moved to CRM; still loggable)
+#   Terminal:     Not Interested / Do Not Contact (truly done)
+#
+# "Replied" no longer exists as a status. Migration 004 converts old rows
+# to "In Conversation". "Replied" remains a valid TOUCH OUTCOME.
 
 PROSPECT_STATUSES <- c(
   "Not Started",
@@ -20,12 +21,13 @@ PROSPECT_STATUSES <- c(
   "Follow-Up 2 Sent",
   "Breakup Sent",
   "Nurture",
-  "Replied",
+  "In Conversation",
+  "Customer",
   "Not Interested",
   "Do Not Contact"
 )
 
-ACTIVE_PROSPECT_STATUSES <- c(
+OUTREACH_PROSPECT_STATUSES <- c(
   "Not Started",
   "Ready to Email",
   "Bounced",
@@ -36,8 +38,17 @@ ACTIVE_PROSPECT_STATUSES <- c(
   "Nurture"
 )
 
+CONVERSATION_PROSPECT_STATUSES <- c("In Conversation")
+
+CUSTOMER_PROSPECT_STATUSES <- c("Customer")
+
+ACTIVE_PROSPECT_STATUSES <- c(
+  OUTREACH_PROSPECT_STATUSES,
+  CONVERSATION_PROSPECT_STATUSES,
+  CUSTOMER_PROSPECT_STATUSES
+)
+
 TERMINAL_PROSPECT_STATUSES <- c(
-  "Replied",
   "Not Interested",
   "Do Not Contact"
 )
@@ -46,8 +57,6 @@ DEFAULT_PROSPECT_STATUS <- "Not Started"
 
 
 # ---- Prospect sources -------------------------------------------------------
-# Where the prospect came from.
-# Keep this list broad enough to support manual entry without overcomplicating it.
 
 PROSPECT_SOURCES <- c(
   "",
@@ -64,8 +73,6 @@ PROSPECT_SOURCES <- c(
 
 
 # ---- Prospect segments ------------------------------------------------------
-# Segment should be approximate.
-# It is mainly used to help the email generator frame the outreach.
 
 PROSPECT_SEGMENTS <- c(
   "",
@@ -86,14 +93,13 @@ PROSPECT_SEGMENTS <- c(
 
 
 # ---- Outreach sequence ------------------------------------------------------
-# Sequence stage represents the next action to take.
 #
-# 0 = intro email has not been sent yet
+# 0 = intro email not yet sent
 # 1 = intro sent; follow-up 1 is next
 # 2 = follow-up 1 sent; follow-up 2 is next
-# 3 = follow-up 2 sent; breakup email is next
+# 3 = follow-up 2 sent; breakup is next
 # 4 = breakup sent; nurture is next
-# 5 = nurture / no immediate action
+# 5 = nurture
 
 SEQUENCE_STAGES <- c(0, 1, 2, 3, 4, 5)
 
@@ -124,11 +130,7 @@ SEQUENCE_RECOMMENDED_ACTIONS <- c(
   "5" = "Re-engage only if there is a useful reason"
 )
 
-# Days until the next touch AFTER a touch is logged at each stage.
-#
-# Example:
-# If stage 0 intro email is sent today, next touch is 3 days from today.
-
+# Days until next touch after a touch is logged at each stage.
 SEQUENCE_NEXT_TOUCH_DAYS <- c(
   "0" = 3,
   "1" = 5,
@@ -148,6 +150,7 @@ TOUCH_TYPES <- c(
   "LinkedIn",
   "Call",
   "Voicemail",
+  "Meeting",
   "Manual Note",
   "Other"
 )
@@ -160,6 +163,8 @@ TOUCH_OUTCOMES <- c(
   "No Answer",
   "Call Back Later",
   "Replied",
+  "Meeting Scheduled",
+  "Meeting Completed",
   "Bounced",
   "Not Interested",
   "Do Not Contact",
@@ -199,7 +204,6 @@ DEFAULT_DRAFT_STATUS <- "Draft"
 
 
 # ---- Email generation -------------------------------------------------------
-# These are guidance values for the LLM prompt layer.
 
 DEFAULT_EMAIL_WORD_LIMIT <- 120
 
@@ -220,18 +224,21 @@ DEFAULT_RESEARCH_WEB_SEARCH_USES <- 2
 DEFAULT_RESEARCH_MAX_TOKENS <- 1000
 
 
-# ---- UI defaults ------------------------------------------------------------
+# ---- Cadence defaults -------------------------------------------------------
 
-DEFAULT_QUEUE_SNOOZE_DAYS <- 7
-DEFAULT_NURTURE_SNOOZE_DAYS <- 30
+DEFAULT_QUEUE_SNOOZE_DAYS        <- 7
+DEFAULT_NURTURE_SNOOZE_DAYS      <- 30
+DEFAULT_CONVERSATION_NEXT_TOUCH_DAYS <- 7
+DEFAULT_CUSTOMER_CHECKIN_DAYS    <- 30
 
-DATE_DISPLAY_FORMAT <- "%Y-%m-%d"
+
+# ---- Display ----------------------------------------------------------------
+
+DATE_DISPLAY_FORMAT     <- "%Y-%m-%d"
 DATETIME_DISPLAY_FORMAT <- "%Y-%m-%d %H:%M"
 
 
 # ---- Backward compatibility aliases ----------------------------------------
-# The first scaffold used CONTACT_* names. Keep aliases temporarily so older
-# modules do not break while we refactor them to prospect language.
 
 CONTACT_STATUSES <- PROSPECT_STATUSES
-FACILITY_TYPES <- PROSPECT_SEGMENTS
+FACILITY_TYPES   <- PROSPECT_SEGMENTS
