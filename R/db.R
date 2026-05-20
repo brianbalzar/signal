@@ -440,12 +440,8 @@ get_prospects <- function(include_inactive = TRUE, ae_filter = NULL) {
   } else {
     ""
   }
-  params <- if (!is.null(ae_filter)) list(ae_filter) else list()
-
-  DBI::dbGetQuery(
-    con,
-    paste0(
-      "
+  sql <- paste0(
+    "
       SELECT
         id,
         trim(coalesce(first_name, '') || ' ' || coalesce(last_name, '')) AS name,
@@ -474,8 +470,8 @@ get_prospects <- function(include_inactive = TRUE, ae_filter = NULL) {
         updated_at
       FROM prospects
       ",
-      where_clause,
-      "
+    where_clause,
+    "
       ORDER BY
         CASE
           WHEN status IN ('Replied', 'Not Interested', 'Do Not Contact') THEN 1
@@ -489,9 +485,12 @@ get_prospects <- function(include_inactive = TRUE, ae_filter = NULL) {
         company ASC,
         last_name ASC
       "
-    ),
-    params = params
   )
+  if (!is.null(ae_filter)) {
+    DBI::dbGetQuery(con, sql, params = list(ae_filter))
+  } else {
+    DBI::dbGetQuery(con, sql)
+  }
 }
 
 
@@ -1503,12 +1502,8 @@ get_touches_for_all_prospects <- function(ae_filter = NULL) {
   } else {
     "JOIN prospects p ON t.prospect_id = p.id"
   }
-  params <- if (!is.null(ae_filter)) list(ae_filter) else list()
-
-  DBI::dbGetQuery(
-    con,
-    paste0(
-      "
+  sql <- paste0(
+    "
       SELECT
         t.id,
         t.prospect_id,
@@ -1522,9 +1517,12 @@ get_touches_for_all_prospects <- function(ae_filter = NULL) {
       ", ae_sql, "
       ORDER BY t.created_at DESC
       "
-    ),
-    params = params
   )
+  if (!is.null(ae_filter)) {
+    DBI::dbGetQuery(con, sql, params = list(ae_filter))
+  } else {
+    DBI::dbGetQuery(con, sql)
+  }
 }
 
 get_prospects_by_status <- function(status, ae_filter = NULL) {
@@ -1563,12 +1561,9 @@ get_pipeline_summary_by_ae <- function(ae_filter = NULL) {
   on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   ae_sql <- if (!is.null(ae_filter)) "WHERE coalesce(assigned_to, '') = ?" else ""
-  params <- if (!is.null(ae_filter)) list(ae_filter) else list()
 
-  DBI::dbGetQuery(
-    con,
-    paste0(
-      "
+  sql <- paste0(
+    "
       SELECT
         coalesce(assigned_to, 'Unassigned') AS ae,
         status,
@@ -1578,9 +1573,12 @@ get_pipeline_summary_by_ae <- function(ae_filter = NULL) {
       GROUP BY assigned_to, status
       ORDER BY ae, status
       "
-    ),
-    params = params
   )
+  if (!is.null(ae_filter)) {
+    DBI::dbGetQuery(con, sql, params = list(ae_filter))
+  } else {
+    DBI::dbGetQuery(con, sql)
+  }
 }
 
 
