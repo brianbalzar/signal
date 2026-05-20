@@ -181,7 +181,7 @@ mod_queue_server <- function(id, ae_filter = NULL, user_role = "admin") {
 
     output$queue_table_ui <- renderUI({
       if (nrow(queue_table_data()) > 0) {
-        return(DTOutput(session$ns("queue_table")))
+        return(DT::DTOutput(session$ns("queue_table")))
       }
 
       queue_empty_state_ui(
@@ -191,12 +191,12 @@ mod_queue_server <- function(id, ae_filter = NULL, user_role = "admin") {
       )
     })
 
-    output$queue_table <- renderDT({
+    output$queue_table <- DT::renderDT({
       req(nrow(queue_table_data()) > 0)
       dblclick_input <- session$ns("queue_table_row_dblclick")
       click_input <- session$ns("queue_table_row_click")
 
-      datatable(
+      DT::datatable(
         queue_table_data(),
         rownames = FALSE,
         selection = "single",
@@ -466,14 +466,14 @@ mod_queue_server <- function(id, ae_filter = NULL, user_role = "admin") {
         return(empty_state_ui("No touches logged yet."))
       }
 
-      DTOutput(session$ns("touch_history_table"))
+      DT::DTOutput(session$ns("touch_history_table"))
     })
 
-    output$touch_history_table <- renderDT({
+    output$touch_history_table <- DT::renderDT({
       touches <- touch_history_data()
       req(!is.null(touches), nrow(touches) > 0)
 
-      datatable(
+      DT::datatable(
         touches[, c("created_at", "touch_type", "outcome", "sequence_stage", "subject")],
         rownames = FALSE,
         class = "compact stripe hover signal-table",
@@ -492,14 +492,14 @@ mod_queue_server <- function(id, ae_filter = NULL, user_role = "admin") {
         return(empty_state_ui("No drafts saved yet."))
       }
 
-      DTOutput(session$ns("draft_history_table"))
+      DT::DTOutput(session$ns("draft_history_table"))
     })
 
-    output$draft_history_table <- renderDT({
+    output$draft_history_table <- DT::renderDT({
       drafts <- draft_history_data()
       req(!is.null(drafts), nrow(drafts) > 0)
 
-      datatable(
+      DT::datatable(
         drafts[, c("created_at", "status", "sequence_stage", "subject")],
         rownames = FALSE,
         class = "compact stripe hover signal-table",

@@ -93,9 +93,9 @@ directory_is_writable <- function(path) {
 sqlite_file_is_readable <- function(path) {
   tryCatch(
     {
-      con <- dbConnect(SQLite(), path, synchronous = NULL)
-      on.exit(dbDisconnect(con), add = TRUE)
-      dbListTables(con)
+      con <- DBI::dbConnect(RSQLite::SQLite(), path, synchronous = NULL)
+      on.exit(DBI::dbDisconnect(con), add = TRUE)
+      DBI::dbListTables(con)
       TRUE
     },
     error = function(e) FALSE
@@ -113,7 +113,7 @@ ensure_db_directory <- function(db_path) {
 }
 
 get_db <- function() {
-  dbConnect(SQLite(), get_db_path(), synchronous = NULL)
+  DBI::dbConnect(RSQLite::SQLite(), get_db_path(), synchronous = NULL)
 }
 
 
@@ -123,9 +123,9 @@ init_db <- function() {
   ensure_db_directory(get_db_path())
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE TABLE IF NOT EXISTS prospects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -167,7 +167,7 @@ init_db <- function() {
     )
   ")
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE TABLE IF NOT EXISTS touches (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -186,7 +186,7 @@ init_db <- function() {
     )
   ")
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE TABLE IF NOT EXISTS drafts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -211,7 +211,7 @@ init_db <- function() {
 
 
 apply_schema_migrations <- function(con) {
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id TEXT PRIMARY KEY,
       applied_at TEXT
@@ -232,7 +232,7 @@ apply_schema_migrations <- function(con) {
     add_column_if_missing(con, "prospects", "customer_since",  "TEXT")
     add_column_if_missing(con, "prospects", "customer_notes",  "TEXT")
     # Convert legacy "Replied" status to the new "In Conversation" phase.
-    dbExecute(con, "UPDATE prospects SET status = 'In Conversation' WHERE status = 'Replied'")
+    DBI::dbExecute(con, "UPDATE prospects SET status = 'In Conversation' WHERE status = 'Replied'")
   })
 
   invisible(TRUE)
@@ -240,7 +240,7 @@ apply_schema_migrations <- function(con) {
 
 
 schema_migration_applied <- function(con, migration_id) {
-  result <- dbGetQuery(
+  result <- DBI::dbGetQuery(
     con,
     "
     SELECT id
@@ -267,7 +267,7 @@ run_schema_migration <- function(con, migration_id, migrate) {
 
 
 record_schema_migration <- function(con, migration_id) {
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     INSERT OR IGNORE INTO schema_migrations (
@@ -286,13 +286,13 @@ record_schema_migration <- function(con, migration_id) {
 
 
 add_column_if_missing <- function(con, table_name, column_name, column_type) {
-  columns <- dbGetQuery(con, paste0("PRAGMA table_info(", table_name, ")"))
+  columns <- DBI::dbGetQuery(con, paste0("PRAGMA table_info(", table_name, ")"))
 
   if (column_name %in% columns$name) {
     return(invisible(FALSE))
   }
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     paste(
       "ALTER TABLE",
@@ -308,32 +308,32 @@ add_column_if_missing <- function(con, table_name, column_name, column_type) {
 
 
 create_indexes <- function(con) {
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_prospects_status
     ON prospects(status)
   ")
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_prospects_next_touch
     ON prospects(next_touch)
   ")
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_prospects_sequence_stage
     ON prospects(sequence_stage)
   ")
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_touches_prospect_id
     ON touches(prospect_id)
   ")
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_drafts_prospect_id
     ON drafts(prospect_id)
   ")
 
-  dbExecute(con, "
+  DBI::dbExecute(con, "
     CREATE INDEX IF NOT EXISTS idx_prospects_assigned_to
     ON prospects(assigned_to)
   ")
@@ -344,7 +344,7 @@ create_indexes <- function(con) {
 
 create_prospect <- function(prospect) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   now <- as.character(Sys.time())
 
@@ -360,7 +360,7 @@ create_prospect <- function(prospect) {
 
   assigned_to <- prospect$assigned_to %||% getOption("signal.user_id", NA_character_)
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     INSERT INTO prospects (
@@ -426,7 +426,7 @@ create_prospect <- function(prospect) {
 
 get_prospects <- function(include_inactive = TRUE, ae_filter = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   conditions <- character(0)
   if (!include_inactive) {
@@ -442,7 +442,7 @@ get_prospects <- function(include_inactive = TRUE, ae_filter = NULL) {
   }
   params <- if (!is.null(ae_filter)) list(ae_filter) else list()
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     paste0(
       "
@@ -502,9 +502,9 @@ get_active_prospects <- function(ae_filter = NULL) {
 
 get_prospect_by_id <- function(prospect_id) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  result <- dbGetQuery(
+  result <- DBI::dbGetQuery(
     con,
     "
     SELECT *
@@ -524,7 +524,7 @@ get_prospect_by_id <- function(prospect_id) {
 
 update_prospect <- function(prospect_id, prospect) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   status <- normalize_status(prospect$status %||% DEFAULT_PROSPECT_STATUS)
   sequence_stage <- normalize_sequence_stage(prospect$sequence_stage %||% DEFAULT_SEQUENCE_STAGE)
@@ -540,7 +540,7 @@ update_prospect <- function(prospect_id, prospect) {
     next_touch <- NA_character_
   }
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -602,13 +602,13 @@ update_prospect <- function(prospect_id, prospect) {
 
 update_prospect_status <- function(prospect_id, status, reply_notes = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   now <- as.character(Sys.time())
   status <- normalize_status(status)
 
   if (is_terminal_status(status)) {
-    dbExecute(
+    DBI::dbExecute(
       con,
       "
       UPDATE prospects
@@ -627,7 +627,7 @@ update_prospect_status <- function(prospect_id, status, reply_notes = NULL) {
       )
     )
   } else {
-    dbExecute(
+    DBI::dbExecute(
       con,
       "
       UPDATE prospects
@@ -652,11 +652,11 @@ update_prospect_status <- function(prospect_id, status, reply_notes = NULL) {
 
 delete_prospect <- function(prospect_id) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbExecute(con, "DELETE FROM drafts WHERE prospect_id = ?", params = list(prospect_id))
-  dbExecute(con, "DELETE FROM touches WHERE prospect_id = ?", params = list(prospect_id))
-  dbExecute(con, "DELETE FROM prospects WHERE id = ?", params = list(prospect_id))
+  DBI::dbExecute(con, "DELETE FROM drafts WHERE prospect_id = ?", params = list(prospect_id))
+  DBI::dbExecute(con, "DELETE FROM touches WHERE prospect_id = ?", params = list(prospect_id))
+  DBI::dbExecute(con, "DELETE FROM prospects WHERE id = ?", params = list(prospect_id))
 
   invisible(TRUE)
 }
@@ -666,13 +666,13 @@ delete_prospect <- function(prospect_id) {
 
 get_outreach_queue <- function(ae_filter = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   today   <- as.character(Sys.Date())
   ae_sql  <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
   params  <- if (!is.null(ae_filter)) list(today, ae_filter) else list(today)
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     paste0(
       "
@@ -716,13 +716,13 @@ get_outreach_queue <- function(ae_filter = NULL) {
 
 get_conversation_queue <- function(ae_filter = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   today  <- as.character(Sys.Date())
   ae_sql <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
   params <- if (!is.null(ae_filter)) list(today, ae_filter) else list(today)
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     paste0(
       "
@@ -766,13 +766,13 @@ get_conversation_queue <- function(ae_filter = NULL) {
 
 get_customer_queue <- function(ae_filter = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   today  <- as.character(Sys.Date())
   ae_sql <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
   params <- if (!is.null(ae_filter)) list(today, ae_filter) else list(today)
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     paste0(
       "
@@ -826,9 +826,9 @@ mark_as_customer <- function(
   )
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -855,7 +855,7 @@ mark_as_customer <- function(
 
 snooze_prospect <- function(prospect_id, days = DEFAULT_QUEUE_SNOOZE_DAYS) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   days <- suppressWarnings(as.integer(days))
   if (is.na(days) || days < 1) {
@@ -864,7 +864,7 @@ snooze_prospect <- function(prospect_id, days = DEFAULT_QUEUE_SNOOZE_DAYS) {
 
   next_touch <- as.character(Sys.Date() + days)
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -911,11 +911,11 @@ log_touch <- function(
   touch_type <- touch_type %||% DEFAULT_TOUCH_TYPE
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   now <- as.character(Sys.time())
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     INSERT INTO touches (
@@ -942,7 +942,7 @@ log_touch <- function(
   if (is_terminal_outcome(outcome)) {
     next_status <- status_from_touch_outcome(outcome, current_status = prospect$status)
 
-    dbExecute(
+    DBI::dbExecute(
       con,
       "
       UPDATE prospects
@@ -965,7 +965,7 @@ log_touch <- function(
   }
 
   if (outcome == "Bounced") {
-    dbExecute(
+    DBI::dbExecute(
       con,
       "
       UPDATE prospects
@@ -989,7 +989,7 @@ log_touch <- function(
   if (!isTRUE(advance_sequence)) {
     next_touch_value <- normalize_next_touch_value(next_touch, prospect$next_touch)
 
-    dbExecute(
+    DBI::dbExecute(
       con,
       "
       UPDATE prospects
@@ -1014,7 +1014,7 @@ log_touch <- function(
   next_stage <- get_next_sequence_stage(sequence_stage)
   next_touch <- get_next_touch_date(sequence_stage)
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -1042,9 +1042,9 @@ log_touch <- function(
 
 get_touches_for_prospect <- function(prospect_id) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     "
     SELECT
@@ -1081,11 +1081,11 @@ create_draft <- function(prospect_id, subject, body, sequence_stage = NULL) {
   sequence_stage <- normalize_sequence_stage(sequence_stage)
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   now <- as.character(Sys.time())
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     INSERT INTO drafts (
@@ -1109,7 +1109,7 @@ create_draft <- function(prospect_id, subject, body, sequence_stage = NULL) {
     )
   )
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -1130,9 +1130,9 @@ create_draft <- function(prospect_id, subject, body, sequence_stage = NULL) {
 
 get_drafts_for_prospect <- function(prospect_id) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     "
     SELECT
@@ -1155,9 +1155,9 @@ get_drafts_for_prospect <- function(prospect_id) {
 
 get_latest_draft_for_prospect <- function(prospect_id) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  result <- dbGetQuery(
+  result <- DBI::dbGetQuery(
     con,
     "
     SELECT
@@ -1187,13 +1187,13 @@ get_latest_draft_for_prospect <- function(prospect_id) {
 
 update_draft <- function(draft_id, subject, body, status = DEFAULT_DRAFT_STATUS) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   if (!status %in% DRAFT_STATUSES) {
     status <- DEFAULT_DRAFT_STATUS
   }
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE drafts
@@ -1224,13 +1224,13 @@ mark_draft_sent <- function(draft_id) {
 
 update_draft_status <- function(draft_id, status) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   if (!status %in% DRAFT_STATUSES) {
     status <- DEFAULT_DRAFT_STATUS
   }
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE drafts
@@ -1271,9 +1271,9 @@ update_prospect_research <- function(
     researched_at = Sys.time()
 ) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -1298,9 +1298,9 @@ update_prospect_research <- function(
 
 update_prospect_from_import <- function(prospect_id, row) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -1347,9 +1347,9 @@ update_prospect_from_import <- function(prospect_id, row) {
 
 update_prospect_personalization_notes <- function(prospect_id, personalization_notes) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbExecute(
+  DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -1376,9 +1376,9 @@ get_prospects_by_company <- function(company) {
   }
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     "
     SELECT
@@ -1405,9 +1405,9 @@ get_company_research <- function(company) {
   }
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  result <- dbGetQuery(
+  result <- DBI::dbGetQuery(
     con,
     "
     SELECT
@@ -1451,9 +1451,9 @@ update_company_research <- function(
   }
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
-  affected <- dbExecute(
+  affected <- DBI::dbExecute(
     con,
     "
     UPDATE prospects
@@ -1496,7 +1496,7 @@ normalize_company_match_value <- function(company) {
 
 get_touches_for_all_prospects <- function(ae_filter = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   ae_sql <- if (!is.null(ae_filter)) {
     "JOIN prospects p ON t.prospect_id = p.id WHERE coalesce(p.assigned_to, '') = ?"
@@ -1505,7 +1505,7 @@ get_touches_for_all_prospects <- function(ae_filter = NULL) {
   }
   params <- if (!is.null(ae_filter)) list(ae_filter) else list()
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     paste0(
       "
@@ -1529,12 +1529,12 @@ get_touches_for_all_prospects <- function(ae_filter = NULL) {
 
 get_prospects_by_status <- function(status, ae_filter = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   ae_sql <- if (!is.null(ae_filter)) "AND coalesce(assigned_to, '') = ?" else ""
   params <- if (!is.null(ae_filter)) list(status, ae_filter) else list(status)
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     paste0(
       "
@@ -1560,12 +1560,12 @@ get_prospects_by_status <- function(status, ae_filter = NULL) {
 
 get_pipeline_summary_by_ae <- function(ae_filter = NULL) {
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   ae_sql <- if (!is.null(ae_filter)) "WHERE coalesce(assigned_to, '') = ?" else ""
   params <- if (!is.null(ae_filter)) list(ae_filter) else list()
 
-  dbGetQuery(
+  DBI::dbGetQuery(
     con,
     paste0(
       "
@@ -1593,14 +1593,14 @@ export_signal_data <- function(export_root = "data/exports") {
   dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
 
   con <- get_db()
-  on.exit(dbDisconnect(con), add = TRUE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
 
   export_table <- function(table_name) {
-    if (!table_name %in% dbListTables(con)) {
+    if (!table_name %in% DBI::dbListTables(con)) {
       return(invisible(FALSE))
     }
 
-    data <- dbGetQuery(con, paste("SELECT * FROM", table_name))
+    data <- DBI::dbGetQuery(con, paste("SELECT * FROM", table_name))
     write.csv(
       data,
       file = file.path(export_dir, paste0(table_name, ".csv")),

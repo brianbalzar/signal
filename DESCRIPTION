@@ -7,11 +7,11 @@ Description: Lightweight outbound workbench for managing prospect sequences,
     Designed to be embedded as a tab in a host Shiny app or run standalone.
 Depends:
     R (>= 4.0.0),
-    shiny,
+    shiny
+Imports:
     DBI,
     RSQLite,
-    DT
-Imports:
+    DT,
     httr2,
     jsonlite,
     yaml,

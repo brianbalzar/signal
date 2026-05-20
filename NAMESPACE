@@ -4,5 +4,4 @@ importFrom(httr2, request, req_headers, req_body_json, req_perform, resp_body_js
 importFrom(jsonlite, fromJSON)
 importFrom(yaml, read_yaml)
 importFrom(readxl, read_excel)
-importFrom(readr, read_csv)
 importFrom(janitor, clean_names)

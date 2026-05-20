@@ -236,7 +236,7 @@ mod_prospects_ui <- function(id) {
 
           br(),
 
-          DTOutput(ns("prospects_table"))
+          DT::DTOutput(ns("prospects_table"))
         ),
 
         div(

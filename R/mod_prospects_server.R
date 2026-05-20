@@ -35,8 +35,8 @@ mod_prospects_server <- function(id) {
       format_prospects_table_data(prospects_data())
     })
 
-    output$prospects_table <- renderDT({
-      datatable(
+    output$prospects_table <- DT::renderDT({
+      DT::datatable(
         prospects_table_data(),
         rownames = FALSE,
         selection = "single",
@@ -137,16 +137,16 @@ mod_prospects_server <- function(id) {
         return(empty_state_ui("Upload a file and click Preview Import."))
       }
 
-      DTOutput(session$ns("import_preview_table"))
+      DT::DTOutput(session$ns("import_preview_table"))
     })
 
-    output$import_preview_table <- renderDT({
+    output$import_preview_table <- DT::renderDT({
       preview <- import_preview_data()
       req(nrow(preview) > 0)
 
       preview_table <- format_import_preview_table_data(preview)
 
-      datatable(
+      DT::datatable(
         preview_table,
         rownames = FALSE,
         class = "compact stripe hover signal-table",
